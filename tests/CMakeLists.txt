@@ -1,0 +1,34 @@
+# ============================================================================
+# PhotonInfer Unit Tests
+# ============================================================================
+
+# Test executable
+add_executable(photon_tests
+  core/test_types.cpp
+  core/test_error.cpp
+  core/test_allocator.cpp
+  core/test_buffer.cpp
+  test_main.cpp
+)
+
+# Link against photon_core and GTest
+target_link_libraries(photon_tests
+  PRIVATE
+    photon_core
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Include directories
+target_include_directories(photon_tests
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+
+# Discover tests
+gtest_discover_tests(photon_tests
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
+# Add test target
+add_test(NAME photon_tests COMMAND photon_tests)

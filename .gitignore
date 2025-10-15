@@ -1,0 +1,85 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+dist/
+
+# Compiled files
+*.o
+*.so
+*.a
+*.dylib
+*.dll
+*.exe
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.code-workspace
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+compile_commands.json
+
+# Testing
+Testing/
+test_detail.xml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+
+# Dependencies
+third_party/
+external/
+
+# Generated files
+*.autosave
+*.user
+*.log
+
+# Model files (optional - uncomment if you don't want to track models)
+# *.bin
+# *.pth
+# *.onnx
+# *.safetensors
+
+# Data files
+data/
+*.csv
+*.json
+
+# Documentation build
+docs/_build/
+docs/_static/
+docs/_templates/
+site/
+
+# Profiling and debugging
+*.prof
+*.gcov
+*.gcda
+*.gcno
+perf.data*
+massif.out.*
+callgrind.out.*
+
+# CUDA
+*.cubin
+*.fatbin
+*.ptx
+
+# Backup files
+*.bak
+*.backup

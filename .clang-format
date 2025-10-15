@@ -1,0 +1,115 @@
+# PhotonInfer Clang-Format Configuration
+# Based on Google Style with modifications for C++20
+
+BasedOnStyle: Google
+
+# Language and Standard
+Language: Cpp
+Standard: c++20
+
+# Line Length
+ColumnLimit: 90
+
+# Indentation
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# Pointers and References (left-aligned: int* ptr, int& ref)
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Qualifiers (const west: const int, not int const)
+QualifierAlignment: Left
+
+# Braces
+BreakBeforeBraces: Attach
+Cpp11BracedListStyle: true
+
+# Includes
+IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
+IncludeCategories:
+  # Main header for the current file
+  - Regex:           '^"photon/'
+    Priority:        1
+  # C system headers
+  - Regex:           '^<[a-z_]+\.h>'
+    Priority:        2
+  # C++ standard library
+  - Regex:           '^<[a-z_]+>'
+    Priority:        3
+  # Third-party libraries
+  - Regex:           '^<(gtest|glog|cuda)/'
+    Priority:        4
+  # Other headers
+  - Regex:           '.*'
+    Priority:        5
+
+# Namespaces
+CompactNamespaces: false
+NamespaceIndentation: None
+
+# Functions
+AllowShortFunctionsOnASingleLine: Inline
+AlwaysBreakAfterReturnType: None
+BinPackParameters: false
+BinPackArguments: false
+
+# Control Statements
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# Comments
+CommentPragmas: '(@copydoc|@copybrief|@see|TODO|FIXME|NOTE)'
+ReflowComments: true
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+
+# Spacing
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: Never
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Template
+AlwaysBreakTemplateDeclarations: Yes
+
+# Other
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SortUsingDeclarations: true
+
+# C++20 Specific
+IndentRequiresClause: true
+RequiresClausePosition: OwnLine
+
+# Penalties (fine-tuning line break decisions)
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakString: 1000
+PenaltyExcessCharacter: 1000000
+PenaltyReturnTypeOnItsOwnLine: 60
