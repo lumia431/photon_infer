@@ -6,6 +6,7 @@
 file(GLOB_RECURSE PHOTON_CORE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/model/*.cpp
 )
 
 # Collect CUDA source files if CUDA is enabled
@@ -32,6 +33,7 @@ endif()
 # Link dependencies
 target_link_libraries(photon_core
   PUBLIC
+    Eigen3::Eigen
     glog::glog
     Threads::Threads
 )

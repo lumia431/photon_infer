@@ -8,6 +8,10 @@ add_executable(photon_tests
   core/test_error.cpp
   core/test_allocator.cpp
   core/test_buffer.cpp
+  core/test_tensor.cpp
+  model/test_model_loader.cpp
+  model/test_tokenizer.cpp
+  model/test_llama32_integration.cpp
   test_main.cpp
 )
 

@@ -22,6 +22,10 @@
 #include "error.hpp"
 #include "types.hpp"
 
+#ifdef PHOTON_USE_CUDA
+#include <cuda_runtime.h>
+#endif
+
 namespace photon {
 
 // ============================================================================

@@ -13,6 +13,7 @@
 #ifndef PHOTON_CORE_ERROR_HPP
 #define PHOTON_CORE_ERROR_HPP
 
+#include <exception>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -58,6 +59,8 @@ enum class ErrorCode : u32 {
   InvalidModelFormat = 301,
   UnsupportedModel = 302,
   WeightMismatch = 303,
+  ModelParseError = 304,
+  IOError = 305,
 
   // Operator errors (400-499)
   InvalidOperator = 400,
@@ -126,6 +129,10 @@ constexpr std::string_view error_code_str(ErrorCode code) noexcept {
       return "UnsupportedModel";
     case ErrorCode::WeightMismatch:
       return "WeightMismatch";
+    case ErrorCode::ModelParseError:
+      return "ModelParseError";
+    case ErrorCode::IOError:
+      return "IOError";
 
     // Operator
     case ErrorCode::InvalidOperator:

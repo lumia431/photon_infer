@@ -23,7 +23,7 @@ option(PHOTON_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 # Export compile commands for clangd/IDE
@@ -108,6 +108,10 @@ endif()
 # ============================================================================
 # Find Dependencies
 # ============================================================================
+
+# Eigen3 (for linear algebra)
+find_package(Eigen3 REQUIRED NO_MODULE)
+message(STATUS "Eigen3 version: ${Eigen3_VERSION}")
 
 # Google Test (for unit tests)
 if(PHOTON_BUILD_TESTS)
