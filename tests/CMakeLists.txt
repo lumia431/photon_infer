@@ -12,6 +12,8 @@ add_executable(photon_tests
   model/test_model_loader.cpp
   model/test_tokenizer.cpp
   model/test_llama32_integration.cpp
+  ops/test_embedding.cpp
+  ops/test_matmul.cpp
   test_main.cpp
 )
 

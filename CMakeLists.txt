@@ -140,9 +140,10 @@ if(PHOTON_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-if(PHOTON_BUILD_EXAMPLES)
-  add_subdirectory(examples)
-endif()
+# Examples directory removed as per user request
+# if(PHOTON_BUILD_EXAMPLES)
+#   add_subdirectory(examples)
+# endif()
 
 # ============================================================================
 # Installation

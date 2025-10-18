@@ -7,6 +7,7 @@ file(GLOB_RECURSE PHOTON_CORE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/model/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ops/*.cpp
 )
 
 # Collect CUDA source files if CUDA is enabled
