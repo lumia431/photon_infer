@@ -12,8 +12,14 @@ add_executable(photon_tests
   model/test_model_loader.cpp
   model/test_tokenizer.cpp
   model/test_llama32_integration.cpp
+  model/test_llama_model.cpp
   ops/test_embedding.cpp
   ops/test_matmul.cpp
+  ops/test_rmsnorm.cpp
+  ops/test_rope.cpp
+  ops/test_swiglu.cpp
+  ops/test_mha.cpp
+  ops/test_add.cpp
   test_main.cpp
 )
 
