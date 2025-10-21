@@ -81,13 +81,13 @@ TEST(MHAOpTest, SingleHeadPosition0) {
   EXPECT_NEAR(out_ptr[3], 5.0f, 1e-4f);
 }
 
-// Test 3: Two-head attention
+// Test 3: Two-head attention with verifiable computation
 TEST(MHAOpTest, TwoHeads) {
   const i32 head_num = 2;
-  const i32 head_size = 3;
-  const i32 dim = head_num * head_size;  // 6
+  const i32 head_size = 2;
+  const i32 dim = head_num * head_size;  // 4
   const i32 kv_dim = dim;
-  const i32 seq_len = 4;
+  const i32 seq_len = 3;
   const i32 pos = 1;
 
   MHAOp op(dim, kv_dim, head_num, head_size, seq_len, /*use_naive=*/true);
@@ -102,32 +102,75 @@ TEST(MHAOpTest, TwoHeads) {
   auto output = Tensor::create({dim}, DataType::Float32, DeviceType::CPU);
   ASSERT_TRUE(output);
 
-  // Initialize with simple values
+  // Initialize with carefully chosen values for verifiable computation
+  // Q = [1, 0, 0, 1]  // head0: [1,0], head1: [0,1]
   f32* q_ptr = query.value().ptr<f32>();
-  for (i32 i = 0; i < dim; ++i) {
-    q_ptr[i] = 1.0f;
-  }
+  q_ptr[0] = 1.0f;  // head0[0]
+  q_ptr[1] = 0.0f;  // head0[1]
+  q_ptr[2] = 0.0f;  // head1[0]
+  q_ptr[3] = 1.0f;  // head1[1]
 
+  // Key cache: positions 0,1,2 with different values per head
+  // pos0: [1,0, 0,1]  // head0: [1,0], head1: [0,1]
+  // pos1: [0,1, 1,0]  // head0: [0,1], head1: [1,0]
+  // pos2: [1,1, 1,1]  // unused
   f32* k_ptr = key_cache.value().ptr<f32>();
-  for (i32 i = 0; i < seq_len * kv_dim; ++i) {
-    k_ptr[i] = 1.0f;
-  }
+  // pos 0
+  k_ptr[0] = 1.0f; k_ptr[1] = 0.0f; k_ptr[2] = 0.0f; k_ptr[3] = 1.0f;
+  // pos 1
+  k_ptr[4] = 0.0f; k_ptr[5] = 1.0f; k_ptr[6] = 1.0f; k_ptr[7] = 0.0f;
+  // pos 2
+  k_ptr[8] = 1.0f; k_ptr[9] = 1.0f; k_ptr[10] = 1.0f; k_ptr[11] = 1.0f;
 
+  // Value cache: different values per position and head
+  // pos0: [2,3, 4,5]  // head0: [2,3], head1: [4,5]
+  // pos1: [6,7, 8,9]  // head0: [6,7], head1: [8,9]
+  // pos2: [0,0, 0,0]  // unused
   f32* v_ptr = value_cache.value().ptr<f32>();
-  for (i32 i = 0; i < seq_len * kv_dim; ++i) {
-    v_ptr[i] = static_cast<f32>(i);
-  }
+  // pos 0
+  v_ptr[0] = 2.0f; v_ptr[1] = 3.0f; v_ptr[2] = 4.0f; v_ptr[3] = 5.0f;
+  // pos 1
+  v_ptr[4] = 6.0f; v_ptr[5] = 7.0f; v_ptr[6] = 8.0f; v_ptr[7] = 9.0f;
+  // pos 2
+  v_ptr[8] = 0.0f; v_ptr[9] = 0.0f; v_ptr[10] = 0.0f; v_ptr[11] = 0.0f;
 
   ASSERT_TRUE(op.forward(query.value(), key_cache.value(),
                         value_cache.value(), output.value(), pos));
 
-  // Output should not be all zeros
+  // Verify output with manually computed expected values
   f32* out_ptr = output.value().ptr<f32>();
-  f32 sum = 0.0f;
-  for (i32 i = 0; i < dim; ++i) {
-    sum += std::abs(out_ptr[i]);
-  }
-  EXPECT_GT(sum, 0.1f);
+
+  // Head 0 computation:
+  // score[0] = (Q[0]·K[0]) / sqrt(2) = ([1,0]·[1,0]) / sqrt(2) = 1/sqrt(2) ≈ 0.707
+  // score[1] = (Q[0]·K[1]) / sqrt(2) = ([1,0]·[0,1]) / sqrt(2) = 0
+  // softmax([0.707, 0]) ≈ [0.670, 0.330]
+  // output[0] = 0.670*[2,3] + 0.330*[6,7] ≈ [3.34, 4.34]
+  const f32 sqrt2 = std::sqrt(2.0f);
+  const f32 score0 = 1.0f / sqrt2;
+  const f32 score1 = 0.0f;
+  const f32 max_score = std::max(score0, score1);
+  const f32 exp0 = std::exp(score0 - max_score);
+  const f32 exp1 = std::exp(score1 - max_score);
+  const f32 sum_exp = exp0 + exp1;
+  const f32 attn0 = exp0 / sum_exp;
+  const f32 attn1 = exp1 / sum_exp;
+
+  const f32 expected_head0_0 = attn0 * 2.0f + attn1 * 6.0f;
+  const f32 expected_head0_1 = attn0 * 3.0f + attn1 * 7.0f;
+
+  EXPECT_NEAR(out_ptr[0], expected_head0_0, 1e-3f);
+  EXPECT_NEAR(out_ptr[1], expected_head0_1, 1e-3f);
+
+  // Head 1 computation:
+  // score[0] = (Q[1]·K[0]) / sqrt(2) = ([0,1]·[0,1]) / sqrt(2) = 1/sqrt(2) ≈ 0.707
+  // score[1] = (Q[1]·K[1]) / sqrt(2) = ([0,1]·[1,0]) / sqrt(2) = 0
+  // softmax same as head 0: [0.670, 0.330]
+  // output[1] = 0.670*[4,5] + 0.330*[8,9] ≈ [5.34, 6.34]
+  const f32 expected_head1_0 = attn0 * 4.0f + attn1 * 8.0f;
+  const f32 expected_head1_1 = attn0 * 5.0f + attn1 * 9.0f;
+
+  EXPECT_NEAR(out_ptr[2], expected_head1_0, 1e-3f);
+  EXPECT_NEAR(out_ptr[3], expected_head1_1, 1e-3f);
 }
 
 // Test 4: Naive vs Eigen implementation

@@ -140,6 +140,9 @@ if(PHOTON_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
+# Demo executable
+add_subdirectory(demo)
+
 # Examples directory removed as per user request
 # if(PHOTON_BUILD_EXAMPLES)
 #   add_subdirectory(examples)

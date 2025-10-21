@@ -352,3 +352,4 @@ TEST(SwiGLUOpTest, Benchmark) {
   // Eigen should be faster
   EXPECT_LT(duration_eigen, duration_naive);
 }
+

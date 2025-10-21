@@ -130,3 +130,4 @@ Result<void> SwiGLUOp::forward_cuda(const Tensor& input1, const Tensor& input2, 
 #endif
 
 }  // namespace photon
+
