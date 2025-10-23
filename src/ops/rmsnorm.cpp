@@ -7,6 +7,10 @@
 #include "photon/ops/rmsnorm.hpp"
 #include "photon/ops/kernels/rmsnorm_kernel.hpp"
 
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/rmsnorm_kernel.cuh"
+#endif
+
 namespace photon {
 
 // ============================================================================
@@ -139,8 +143,27 @@ Result<void> RMSNormOp::forward_cpu(const Tensor& input, Tensor& output) {
 
 #ifdef PHOTON_USE_CUDA
 Result<void> RMSNormOp::forward_cuda(const Tensor& input, Tensor& output) {
-  return Err<void>(ErrorCode::NotImplemented,
-                  "CUDA rmsnorm not yet implemented");
+  // Get weight tensor
+  const Tensor& weight = weights_[0];
+
+  // Create spans for CUDA kernel launch
+  std::span<const f32> input_data(input.ptr<f32>(), input.size());
+  std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
+  std::span<f32> output_data(output.ptr<f32>(), output.size());
+
+  // Dispatch based on input shape
+  if (input.ndim() == 1) {
+    // Single vector normalization: [dim] -> [dim]
+    return kernels::cuda::rmsnorm_cuda_launch(
+        input_data, weight_data, output_data,
+        dim_, eps_);
+  } else {
+    // Batch normalization: [batch × dim] -> [batch × dim]
+    i32 batch_size = input.dim(0);
+    return kernels::cuda::rmsnorm_batch_cuda_launch(
+        input_data, weight_data, output_data,
+        batch_size, dim_, eps_);
+  }
 }
 #endif
 

@@ -1,5 +1,10 @@
 #include "photon/ops/mha.hpp"
 #include "photon/ops/kernels/mha_kernel.hpp"
+
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/mha_kernel.cuh"
+#endif
+
 #include <span>
 
 namespace photon {
@@ -81,76 +86,117 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
   }
   Tensor score = std::move(score_result.value());
 
-  // Dispatch to appropriate kernel based on dtype and device
+  // Dispatch based on device
   if (device_ == DeviceType::CPU) {
-    if (query.dtype() == DataType::Float32) {
-      // Get const maps for inputs
-      auto query_map = query.vector_map<f32>();
-      auto key_map = key_cache.vector_map<f32>();
-      auto value_map = value_cache.vector_map<f32>();
+    return forward_cpu(query, key_cache, value_cache, output, score, pos);
+  }
 
-      // Get mutable maps for outputs
-      auto output_map = output.vector_map<f32>();
-      auto score_map = score.vector_map<f32>();
+#ifdef PHOTON_USE_CUDA
+  if (device_ == DeviceType::CUDA) {
+    return forward_cuda(query, key_cache, value_cache, output, score, pos);
+  }
+#endif
 
-      // Create spans from Eigen maps
-      std::span<const f32> query_span(query_map.data(), query_map.size());
-      std::span<const f32> key_span(key_map.data(), key_map.size());
-      std::span<const f32> value_span(value_map.data(), value_map.size());
-      std::span<f32> output_span(output_map.data(), output_map.size());
-      std::span<f32> score_span(score_map.data(), score_map.size());
+  return Err<void>(ErrorCode::NotImplemented,
+              "MHA not implemented for this device");
+}
 
-      if (use_naive_) {
-        kernels::mha_naive<f32>(
-            query_span, key_span, value_span,
-            output_span, score_span,
-            pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
-      } else {
-        auto result = kernels::mha_eigen<f32>(
-            query_span, key_span, value_span,
-            output_span, score_span,
-            pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
-        if (!result) {
-          return result;
-        }
-      }
-    } else if (query.dtype() == DataType::Float64) {
-      auto query_map = query.vector_map<f64>();
-      auto key_map = key_cache.vector_map<f64>();
-      auto value_map = value_cache.vector_map<f64>();
-      auto output_map = output.vector_map<f64>();
-      auto score_map = score.vector_map<f64>();
+Result<void> MHAOp::forward_cpu(const Tensor& query, const Tensor& key_cache,
+                                const Tensor& value_cache, Tensor& output,
+                                Tensor& score, i32 pos) {
+  if (query.dtype() == DataType::Float32) {
+    // Get const maps for inputs
+    auto query_map = query.vector_map<f32>();
+    auto key_map = key_cache.vector_map<f32>();
+    auto value_map = value_cache.vector_map<f32>();
 
-      std::span<const f64> query_span(query_map.data(), query_map.size());
-      std::span<const f64> key_span(key_map.data(), key_map.size());
-      std::span<const f64> value_span(value_map.data(), value_map.size());
-      std::span<f64> output_span(output_map.data(), output_map.size());
-      std::span<f64> score_span(score_map.data(), score_map.size());
+    // Get mutable maps for outputs
+    auto output_map = output.vector_map<f32>();
+    auto score_map = score.vector_map<f32>();
 
-      if (use_naive_) {
-        kernels::mha_naive<f64>(
-            query_span, key_span, value_span,
-            output_span, score_span,
-            pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
-      } else {
-        auto result = kernels::mha_eigen<f64>(
-            query_span, key_span, value_span,
-            output_span, score_span,
-            pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
-        if (!result) {
-          return result;
-        }
-      }
+    // Create spans from Eigen maps
+    std::span<const f32> query_span(query_map.data(), query_map.size());
+    std::span<const f32> key_span(key_map.data(), key_map.size());
+    std::span<const f32> value_span(value_map.data(), value_map.size());
+    std::span<f32> output_span(output_map.data(), output_map.size());
+    std::span<f32> score_span(score_map.data(), score_map.size());
+
+    if (use_naive_) {
+      kernels::mha_naive<f32>(
+          query_span, key_span, value_span,
+          output_span, score_span,
+          pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
     } else {
-      return Err<void>(ErrorCode::InvalidArgument,
-                  "Unsupported data type for MHA operation");
+      auto result = kernels::mha_eigen<f32>(
+          query_span, key_span, value_span,
+          output_span, score_span,
+          pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
+      if (!result) {
+        return result;
+      }
+    }
+  } else if (query.dtype() == DataType::Float64) {
+    auto query_map = query.vector_map<f64>();
+    auto key_map = key_cache.vector_map<f64>();
+    auto value_map = value_cache.vector_map<f64>();
+    auto output_map = output.vector_map<f64>();
+    auto score_map = score.vector_map<f64>();
+
+    std::span<const f64> query_span(query_map.data(), query_map.size());
+    std::span<const f64> key_span(key_map.data(), key_map.size());
+    std::span<const f64> value_span(value_map.data(), value_map.size());
+    std::span<f64> output_span(output_map.data(), output_map.size());
+    std::span<f64> score_span(score_map.data(), score_map.size());
+
+    if (use_naive_) {
+      kernels::mha_naive<f64>(
+          query_span, key_span, value_span,
+          output_span, score_span,
+          pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
+    } else {
+      auto result = kernels::mha_eigen<f64>(
+          query_span, key_span, value_span,
+          output_span, score_span,
+          pos, kv_dim_, head_num_, head_size_, seq_len_, kv_mul_);
+      if (!result) {
+        return result;
+      }
     }
   } else {
-    return Err<void>(ErrorCode::NotImplemented,
-                "MHA operation not implemented for non-CPU devices");
+    return Err<void>(ErrorCode::InvalidArgument,
+                "Unsupported data type for MHA operation");
   }
 
   return Ok();
 }
+
+#ifdef PHOTON_USE_CUDA
+Result<void> MHAOp::forward_cuda(const Tensor& query, const Tensor& key_cache,
+                                 const Tensor& value_cache, Tensor& output,
+                                 Tensor& score, i32 pos) {
+  if (query.dtype() != DataType::Float32) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                "CUDA MHA only supports Float32");
+  }
+
+  // Create spans for CUDA kernel launch
+  std::span<const f32> query_span(query.ptr<f32>(), query.size());
+  std::span<const f32> key_span(key_cache.ptr<f32>(), key_cache.size());
+  std::span<const f32> value_span(value_cache.ptr<f32>(), value_cache.size());
+  std::span<f32> output_span(output.ptr<f32>(), output.size());
+  std::span<f32> score_span(score.ptr<f32>(), score.size());
+
+  // Note: CUDA MHA kernel expects layer_idx but we don't have it here
+  // For single-layer inference, layer_idx = 0
+  // For multi-layer models, this would need to be passed as a parameter
+  constexpr i32 layer_idx = 0;
+
+  return kernels::cuda::mha_cuda_launch(
+      query_span, key_span, value_span,
+      output_span, score_span,
+      pos, layer_idx, seq_len_, kv_dim_,
+      head_num_, head_size_, kv_mul_);
+}
+#endif
 
 }  // namespace photon
