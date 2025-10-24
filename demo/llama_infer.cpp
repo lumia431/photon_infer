@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <cmath>
 
 #include "photon/core/tensor.hpp"
 #include "photon/model/checkpoint.hpp"
@@ -54,9 +55,9 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
     std::cout << "Generating: " << std::flush;
   }
 
-  // Create logits buffer
+  // Create logits buffer (always on CPU for sampling)
   const auto& config = model.config();
-  auto logits_result = Tensor::create({config.vocab_size}, DataType::Float32, config.device);
+  auto logits_result = Tensor::create({config.vocab_size}, DataType::Float32, DeviceType::CPU);
   if (!logits_result) {
     std::cerr << "Error: Failed to create logits buffer\n";
     return 0;
@@ -89,6 +90,35 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
     if (!forward_result) {
       std::cerr << "\nError during forward pass: " << forward_result.error().message() << "\n";
       return pos;
+    }
+
+    // Debug: Print logits for first few generated tokens
+    if (pos >= prompt_len - 1 && pos < prompt_len + 3) {
+      std::cout << "\n[DEBUG] Token generation at pos=" << pos << ":\n";
+      const f32* logits_ptr = logits.ptr<f32>();
+
+      // Find top-5 logits
+      std::vector<std::pair<f32, i32>> top_logits;
+      for (i32 i = 0; i < config.vocab_size; ++i) {
+        top_logits.push_back({logits_ptr[i], i});
+      }
+      std::partial_sort(top_logits.begin(), top_logits.begin() + 5, top_logits.end(),
+                       [](const auto& a, const auto& b) { return a.first > b.first; });
+
+      std::cout << "  Top-5 logits: ";
+      for (int k = 0; k < 5; ++k) {
+        std::cout << "(" << top_logits[k].second << ":" << top_logits[k].first << ") ";
+      }
+      std::cout << "\n";
+
+      // Check for NaN or Inf
+      bool has_nan = false, has_inf = false;
+      for (i32 i = 0; i < config.vocab_size; ++i) {
+        if (std::isnan(logits_ptr[i])) has_nan = true;
+        if (std::isinf(logits_ptr[i])) has_inf = true;
+      }
+      if (has_nan) std::cout << "  WARNING: NaN detected in logits!\n";
+      if (has_inf) std::cout << "  WARNING: Inf detected in logits!\n";
     }
 
     // Sample next token with temperature sampling (T=0.8)
@@ -211,7 +241,7 @@ int main(int argc, char* argv[]) {
   config.vocab_size = header.vocab_size;
   config.seq_len = header.seq_len;
   config.head_size = header.dim / header.n_heads;
-  config.norm_eps = 1e-5f;
+  config.norm_eps = 1e-5f;  // Default RMSNorm epsilon
   config.device = device;  // Set device from command line argument
   config.compute_derived();
 

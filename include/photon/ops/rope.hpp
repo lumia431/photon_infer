@@ -89,6 +89,11 @@ class RoPEOp : public OperatorBase<RoPEOp> {
         use_naive_(use_naive) {}
 
   /**
+   * @brief Destructor to cleanup CUDA resources
+   */
+  ~RoPEOp();
+
+  /**
    * @brief Initialize the operator and precompute sin/cos cache
    */
   Result<void> init_impl();
@@ -169,6 +174,12 @@ class RoPEOp : public OperatorBase<RoPEOp> {
   // Precomputed sin/cos cache: [max_seq_len × head_size]
   std::vector<f32> sin_cache_;
   std::vector<f32> cos_cache_;
+
+#ifdef PHOTON_USE_CUDA
+  // CUDA-specific cache buffers
+  f32* cuda_sin_cache_ = nullptr;
+  f32* cuda_cos_cache_ = nullptr;
+#endif
 
   /**
    * @brief CPU forward implementation

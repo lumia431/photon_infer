@@ -44,3 +44,8 @@ gtest_discover_tests(photon_tests
 
 # Add test target
 add_test(NAME photon_tests COMMAND photon_tests)
+
+# Add CUDA tests subdirectory
+if(PHOTON_BUILD_CUDA)
+  add_subdirectory(cuda)
+endif()

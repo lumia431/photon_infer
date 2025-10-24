@@ -2,6 +2,7 @@
 #define PHOTON_MODEL_CONFIG_HPP
 
 #include <cstdint>
+#include "photon/core/types.hpp"
 
 namespace photon::model {
 
@@ -33,6 +34,7 @@ struct TransformerConfig {
   int32_t seq_len = 0;
 
   bool is_shared_weight = false; // Whether embeddings and output weights are shared
+  photon::DeviceType device = photon::DeviceType::CPU; // Device for computation
 
   // Compute derived values from ModelConfig
   static TransformerConfig from_model_config(const ModelConfig& config, int32_t tokenizer_vocab_size);

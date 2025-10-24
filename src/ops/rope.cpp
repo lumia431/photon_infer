@@ -9,6 +9,7 @@
 
 #ifdef PHOTON_USE_CUDA
 #include "photon/ops/kernels/cuda/rope_kernel.cuh"
+#include <cuda_runtime.h>
 #endif
 
 namespace photon {
@@ -16,6 +17,20 @@ namespace photon {
 // ============================================================================
 // RoPEOp Implementation
 // ============================================================================
+
+RoPEOp::~RoPEOp() {
+#ifdef PHOTON_USE_CUDA
+  // Free CUDA cache buffers if allocated
+  if (cuda_sin_cache_ != nullptr) {
+    cudaFree(cuda_sin_cache_);
+    cuda_sin_cache_ = nullptr;
+  }
+  if (cuda_cos_cache_ != nullptr) {
+    cudaFree(cuda_cos_cache_);
+    cuda_cos_cache_ = nullptr;
+  }
+#endif
+}
 
 Result<void> RoPEOp::init_impl() {
   // Allocate sin/cos cache: [max_seq_len × head_size]
@@ -29,6 +44,55 @@ Result<void> RoPEOp::init_impl() {
       std::span<f32>(cos_cache_),
       max_seq_len_,
       head_size_);
+
+#ifdef PHOTON_USE_CUDA
+  // If using CUDA, also allocate and precompute on GPU
+  if (device_ == DeviceType::CUDA) {
+    usize cache_bytes = cache_size * sizeof(f32);
+
+    // Allocate GPU memory
+    cudaError_t err = cudaMalloc(&cuda_sin_cache_, cache_bytes);
+    if (err != cudaSuccess) {
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to allocate CUDA sin cache: ") +
+                      cudaGetErrorString(err));
+    }
+
+    err = cudaMalloc(&cuda_cos_cache_, cache_bytes);
+    if (err != cudaSuccess) {
+      cudaFree(cuda_sin_cache_);
+      cuda_sin_cache_ = nullptr;
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to allocate CUDA cos cache: ") +
+                      cudaGetErrorString(err));
+    }
+
+    // Copy CPU cache to GPU
+    err = cudaMemcpy(cuda_sin_cache_, sin_cache_.data(), cache_bytes,
+                     cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+      cudaFree(cuda_sin_cache_);
+      cudaFree(cuda_cos_cache_);
+      cuda_sin_cache_ = nullptr;
+      cuda_cos_cache_ = nullptr;
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to copy sin cache to GPU: ") +
+                      cudaGetErrorString(err));
+    }
+
+    err = cudaMemcpy(cuda_cos_cache_, cos_cache_.data(), cache_bytes,
+                     cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+      cudaFree(cuda_sin_cache_);
+      cudaFree(cuda_cos_cache_);
+      cuda_sin_cache_ = nullptr;
+      cuda_cos_cache_ = nullptr;
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to copy cos cache to GPU: ") +
+                      cudaGetErrorString(err));
+    }
+  }
+#endif
 
   return Ok();
 }
@@ -127,15 +191,18 @@ Result<void> RoPEOp::forward_cpu(Tensor& q, Tensor& k, i32 pos) {
 
 #ifdef PHOTON_USE_CUDA
 Result<void> RoPEOp::forward_cuda(Tensor& q, Tensor& k, i32 pos) {
-  // Create spans for CUDA kernel launch
+  // Create spans for CUDA kernel (following KuiperInfer)
   std::span<f32> q_data(q.ptr<f32>(), q.size());
   std::span<f32> k_data(k.ptr<f32>(), k.size());
-  std::span<const f32> sin_data(sin_cache_.data(), sin_cache_.size());
-  std::span<const f32> cos_data(cos_cache_.data(), cos_cache_.size());
 
+  usize cache_size = static_cast<usize>(max_seq_len_) * static_cast<usize>(head_size_);
+  std::span<const f32> sin_data(cuda_sin_cache_, cache_size);
+  std::span<const f32> cos_data(cuda_cos_cache_, cache_size);
+
+  // Launch CUDA kernel
   return kernels::cuda::rope_cuda_launch(
       q_data, k_data, sin_data, cos_data,
-      pos, dim_, kv_dim_, head_size_);
+      pos, dim_, kv_dim_, head_size_, nullptr);
 }
 #endif
 

@@ -107,11 +107,12 @@ Result<void> EmbeddingOp::forward_cuda(const Tensor& input, Tensor& output) {
   std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
   std::span<f32> output_data(output.ptr<f32>(), output.size());
 
+  // Launch CUDA kernel (following KuiperInfer)
   i32 num_tokens = static_cast<i32>(input.size());
-
   return kernels::cuda::embedding_cuda_launch(
       tokens, weight_data, output_data,
-      num_tokens, vocab_size_, embedding_dim_);
+      num_tokens, vocab_size_, embedding_dim_,
+      nullptr);  // stream = nullptr for now
 }
 #endif
 

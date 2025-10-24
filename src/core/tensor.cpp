@@ -7,6 +7,11 @@
 
 #include <numeric>
 #include <sstream>
+#include <cstring>
+
+#ifdef PHOTON_USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 namespace photon {
 
@@ -177,6 +182,52 @@ std::string Tensor::to_string() const {
       << ")";
 
   return oss.str();
+}
+
+Result<Tensor> Tensor::to(DeviceType target_device) const {
+  // If already on target device, return a copy
+  if (device_ == target_device) {
+    auto result = Tensor::create(dims_, dtype_, target_device);
+    if (!result) {
+      return result;
+    }
+
+    Tensor new_tensor = std::move(result.value());
+    std::memcpy(new_tensor.data(), data(), byte_size());
+    return Ok(std::move(new_tensor));
+  }
+
+#ifdef PHOTON_USE_CUDA
+  // Device transfer between CPU and CUDA
+  auto result = Tensor::create(dims_, dtype_, target_device);
+  if (!result) {
+    return result;
+  }
+
+  Tensor new_tensor = std::move(result.value());
+
+  cudaMemcpyKind kind;
+  if (device_ == DeviceType::CPU && target_device == DeviceType::CUDA) {
+    kind = cudaMemcpyHostToDevice;
+  } else if (device_ == DeviceType::CUDA && target_device == DeviceType::CPU) {
+    kind = cudaMemcpyDeviceToHost;
+  } else {
+    // CUDA to CUDA
+    kind = cudaMemcpyDeviceToDevice;
+  }
+
+  cudaError_t err = cudaMemcpy(new_tensor.data(), data(), byte_size(), kind);
+  if (err != cudaSuccess) {
+    return Err<Tensor>(ErrorCode::CudaError,
+                      std::string("Failed to copy tensor to device: ") +
+                      cudaGetErrorString(err));
+  }
+
+  return Ok(std::move(new_tensor));
+#else
+  return Err<Tensor>(ErrorCode::NotImplemented,
+                    "CUDA not available - cannot transfer to CUDA device");
+#endif
 }
 
 }  // namespace photon

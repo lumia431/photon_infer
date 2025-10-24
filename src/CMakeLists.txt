@@ -14,6 +14,7 @@ file(GLOB_RECURSE PHOTON_CORE_SOURCES
 if(PHOTON_BUILD_CUDA)
   file(GLOB_RECURSE PHOTON_CUDA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/ops/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/ops/kernels/cuda/*.cu
   )
   message(STATUS "CUDA sources found: ${PHOTON_CUDA_SOURCES}")
@@ -54,14 +55,6 @@ set_target_properties(photon_core PROPERTIES
   SOVERSION ${PROJECT_VERSION_MAJOR}
   PUBLIC_HEADER "${PROJECT_SOURCE_DIR}/include/photon/core"
 )
-
-# CUDA specific properties
-if(PHOTON_BUILD_CUDA)
-  set_target_properties(photon_core PROPERTIES
-    CUDA_SEPARABLE_COMPILATION ON
-    CUDA_RESOLVE_DEVICE_SYMBOLS ON
-  )
-endif()
 
 # Include directories
 target_include_directories(photon_core

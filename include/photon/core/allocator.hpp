@@ -14,8 +14,10 @@
 #define PHOTON_CORE_ALLOCATOR_HPP
 
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <new>
+#include <vector>
 
 #include "error.hpp"
 #include "types.hpp"
@@ -150,14 +152,42 @@ static_assert(Allocator<CPUAllocator>, "CPUAllocator must satisfy Allocator conc
 #ifdef PHOTON_USE_CUDA
 
 /**
- * @class CUDAAllocator
- * @brief Memory allocator for CUDA devices
+ * @struct CudaMemoryBuffer
+ * @brief CUDA memory buffer descriptor for memory pooling
  *
- * This allocator provides memory allocation on CUDA devices using cudaMalloc.
+ * Strictly follows KuiperInfer's implementation at:
+ * demos/kuiper_llama/kuiper/include/base/alloc.h
+ */
+struct CudaMemoryBuffer {
+  void* data = nullptr;
+  usize byte_size = 0;
+  bool busy = false;
+
+  CudaMemoryBuffer() = default;
+
+  CudaMemoryBuffer(void* data_, usize byte_size_, bool busy_)
+      : data(data_), byte_size(byte_size_), busy(busy_) {}
+};
+
+/**
+ * @class CUDAAllocator
+ * @brief Memory allocator for CUDA devices with memory pooling
+ *
+ * This allocator implements a memory pool mechanism to reduce frequent
+ * cudaMalloc/cudaFree calls, strictly following KuiperInfer's design at:
+ * demos/kuiper_llama/kuiper/source/base/alloc_cu.cpp
+ *
+ * Key features (from KuiperInfer):
+ * - Separates big buffers (>1MB) and regular buffers (<=1MB)
+ * - Reuses memory blocks marked as non-busy
+ * - Automatically cleans up when idle memory exceeds threshold (1GB)
+ *
  * Full implementation is in allocator.cu
  */
 class CUDAAllocator {
  public:
+  CUDAAllocator() = default;
+
   [[nodiscard]] Result<void*> allocate(usize size, usize alignment = 256);
 
   [[nodiscard]] Result<void> deallocate(void* ptr, usize size);
@@ -178,6 +208,15 @@ class CUDAAllocator {
 
  private:
   i32 device_id_ = 0;
+
+  // Memory pool for buffers > 1MB (following KuiperInfer)
+  mutable std::map<i32, std::vector<CudaMemoryBuffer>> big_buffers_map_;
+
+  // Memory pool for regular buffers <= 1MB (following KuiperInfer)
+  mutable std::map<i32, std::vector<CudaMemoryBuffer>> cuda_buffers_map_;
+
+  // Track total size of non-busy buffers per device (following KuiperInfer)
+  mutable std::map<i32, usize> no_busy_cnt_;
 };
 
 static_assert(Allocator<CUDAAllocator>, "CUDAAllocator must satisfy Allocator concept");

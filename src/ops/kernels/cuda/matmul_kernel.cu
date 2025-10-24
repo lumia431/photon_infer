@@ -1,188 +1,93 @@
 /**
  * @file matmul_kernel.cu
- * @brief CUDA implementation of matrix multiplication kernels
+ * @brief CUDA matrix multiplication kernel implementation
  * @version 0.1.0
+ *
+ * Strictly follows KuiperInfer implementation at:
+ * demos/kuiper_llama/kuiper/source/op/kernels/cuda/matmul_kernel.cu
  */
 
 #include "photon/ops/kernels/cuda/matmul_kernel.cuh"
-
 #include <cub/block/block_reduce.cuh>
-#include <cuda_runtime.h>
+#include <glog/logging.h>
 
 namespace photon::kernels::cuda {
 
-// ============================================================================
-// CUDA Kernel Implementation - GEMV (Matrix-Vector)
-// ============================================================================
-
-template <i32 THREAD_PER_BLOCK, i32 ROW_PER_BLOCK>
-__global__ void matmul_gemv_kernel(
-    const float* __restrict__ input,
-    const float* __restrict__ weight,
-    float* __restrict__ output,
-    i32 M,
-    i32 N) {
+/**
+ * @brief CUDA kernel for matrix-vector multiplication (GEMV)
+ *
+ * Following KuiperInfer line-by-line:
+ * - Template parameters: THREAD_PER_BLOCK=128, ROW_PER_BLOCK=1
+ * - Each block computes ROW_PER_BLOCK output elements
+ * - Uses float4 vectorization for efficiency
+ * - Uses CUB BlockReduce for reduction
+ *
+ * Grid: K blocks, Block: 128 threads
+ * Computes: output[K] = input[M] @ weight[K×M]^T
+ */
+template <int THREAD_PER_BLOCK, int ROW_PER_BLOCK>
+__global__ void matmul_kernel_cu_fp32(
+    const float* input,
+    const float* weight,
+    float* output,
+    int M,
+    int K) {
 
   __shared__ float sdata[THREAD_PER_BLOCK];
-  const i32 tid = threadIdx.x;
+  unsigned int tid = threadIdx.x;
 
-  // Each block processes ROW_PER_BLOCK rows
-  const i32 start_row = blockIdx.x * ROW_PER_BLOCK;
-  const i32 end_row = min(start_row + ROW_PER_BLOCK, M);
-
-  if (start_row >= M) {
+  // Each block processes ROW_PER_BLOCK rows (following KuiperInfer)
+  int start_row = blockIdx.x * ROW_PER_BLOCK;
+  int end_row = start_row + ROW_PER_BLOCK;
+  if (start_row >= K) {
     return;
   }
 
-  // Vectorization configuration
-  constexpr i32 PACK_SIZE = 4;
-  const i32 pack_num = N / PACK_SIZE;
-  const i32 pack_off = pack_num * PACK_SIZE;
+  // Vectorization configuration (following KuiperInfer)
+  constexpr int pack_size = 4;
+  const int pack_num = M / pack_size;
+  const int pack_off = pack_size * pack_num;
 
-  const float4* input_pack = reinterpret_cast<const float4*>(input);
+  // Process each row (following KuiperInfer)
+#pragma unroll
+  for (int p = start_row; p < end_row; ++p) {
+    sdata[tid] = 0;
+    int row_offset = p * M;
+    float4* input_float4_ptr = (float4*)input;
+    float4* weight_float4_ptr = (float4*)(weight + row_offset);
 
-  // Process each row assigned to this block
-  #pragma unroll
-  for (i32 row = start_row; row < end_row; ++row) {
-    // Initialize thread-local accumulator
-    sdata[tid] = 0.0f;
-
-    const i32 row_offset = row * N;
-    const float4* weight_pack = reinterpret_cast<const float4*>(weight + row_offset);
-
-    // ============================================
-    // Phase 1: Vectorized dot product
-    // ============================================
-    #pragma unroll
-    for (i32 i = tid; i < pack_num; i += THREAD_PER_BLOCK) {
-      float4 in_val = input_pack[i];
-      float4 w_val = weight_pack[i];
-
-      // Dot product of 4-element vectors
-      float partial_sum = in_val.x * w_val.x +
-                         in_val.y * w_val.y +
-                         in_val.z * w_val.z +
-                         in_val.w * w_val.w;
-      sdata[tid] += partial_sum;
+    // Vectorized dot product (following KuiperInfer)
+#pragma unroll
+    for (int i = tid; i < pack_num; i += blockDim.x) {
+      float4 input_float4 = *(input_float4_ptr + i);
+      float4 weight_float4 = *(weight_float4_ptr + i);
+      float part_sum = input_float4.x * weight_float4.x +
+                       input_float4.y * weight_float4.y +
+                       input_float4.z * weight_float4.z +
+                       input_float4.w * weight_float4.w;
+      sdata[tid] += part_sum;
     }
 
-    // ============================================
-    // Phase 2: Scalar tail
-    // ============================================
-    for (i32 i = pack_off + tid; i < N; i += THREAD_PER_BLOCK) {
+    // Handle remaining elements (following KuiperInfer)
+    for (int i = pack_off + tid; i < M; i += blockDim.x) {
       sdata[tid] += input[i] * weight[row_offset + i];
     }
 
     __syncthreads();
 
-    // ============================================
-    // Phase 3: Block-level reduction
-    // ============================================
+    // Block-level reduction using CUB (following KuiperInfer)
     using BlockReduce = cub::BlockReduce<float, THREAD_PER_BLOCK>;
-    __shared__ typename BlockReduce::TempStorage temp_storage;
-    float block_sum = BlockReduce(temp_storage).Sum(sdata[tid]);
+    __shared__ typename BlockReduce::TempStorage temp;
+    float part_sum = BlockReduce(temp).Sum(sdata[tid]);
     __syncthreads();
 
-    // Thread 0 writes final result
+    // Thread 0 writes result (following KuiperInfer)
     if (tid == 0) {
-      output[row] = block_sum;
+      output[p] = part_sum;
     }
     __syncthreads();
   }
 }
-
-// ============================================================================
-// CUDA Kernel Implementation - GEMM (Matrix-Matrix)
-// ============================================================================
-
-template <i32 THREAD_PER_BLOCK, i32 ROW_PER_BLOCK>
-__global__ void matmul_gemm_kernel(
-    const float* __restrict__ input,
-    const float* __restrict__ weight,
-    float* __restrict__ output,
-    i32 B,
-    i32 M,
-    i32 N) {
-
-  __shared__ float sdata[THREAD_PER_BLOCK];
-  const i32 tid = threadIdx.x;
-
-  // Calculate which output element this block computes
-  // Total output elements = B × M
-  const i32 total_outputs = B * M;
-  const i32 start_idx = blockIdx.x * ROW_PER_BLOCK;
-  const i32 end_idx = min(start_idx + ROW_PER_BLOCK, total_outputs);
-
-  if (start_idx >= total_outputs) {
-    return;
-  }
-
-  // Vectorization configuration
-  constexpr i32 PACK_SIZE = 4;
-  const i32 pack_num = N / PACK_SIZE;
-  const i32 pack_off = pack_num * PACK_SIZE;
-
-  // Process each output element assigned to this block
-  #pragma unroll
-  for (i32 idx = start_idx; idx < end_idx; ++idx) {
-    // Decode output index to (batch, row)
-    const i32 batch = idx / M;
-    const i32 row = idx % M;
-
-    // Initialize accumulator
-    sdata[tid] = 0.0f;
-
-    // Input row for this batch
-    const i32 input_offset = batch * N;
-    const float4* input_pack = reinterpret_cast<const float4*>(input + input_offset);
-
-    // Weight row for this output
-    const i32 weight_offset = row * N;
-    const float4* weight_pack = reinterpret_cast<const float4*>(weight + weight_offset);
-
-    // ============================================
-    // Phase 1: Vectorized dot product
-    // ============================================
-    #pragma unroll
-    for (i32 i = tid; i < pack_num; i += THREAD_PER_BLOCK) {
-      float4 in_val = input_pack[i];
-      float4 w_val = weight_pack[i];
-
-      float partial_sum = in_val.x * w_val.x +
-                         in_val.y * w_val.y +
-                         in_val.z * w_val.z +
-                         in_val.w * w_val.w;
-      sdata[tid] += partial_sum;
-    }
-
-    // ============================================
-    // Phase 2: Scalar tail
-    // ============================================
-    for (i32 i = pack_off + tid; i < N; i += THREAD_PER_BLOCK) {
-      sdata[tid] += input[input_offset + i] * weight[weight_offset + i];
-    }
-
-    __syncthreads();
-
-    // ============================================
-    // Phase 3: Block-level reduction
-    // ============================================
-    using BlockReduce = cub::BlockReduce<float, THREAD_PER_BLOCK>;
-    __shared__ typename BlockReduce::TempStorage temp_storage;
-    float block_sum = BlockReduce(temp_storage).Sum(sdata[tid]);
-    __syncthreads();
-
-    // Thread 0 writes final result
-    if (tid == 0) {
-      output[idx] = block_sum;
-    }
-    __syncthreads();
-  }
-}
-
-// ============================================================================
-// Host-side Launch Functions
-// ============================================================================
 
 Result<void> matmul_gemv_cuda_launch(
     std::span<const f32> input,
@@ -192,108 +97,51 @@ Result<void> matmul_gemv_cuda_launch(
     i32 N,
     cudaStream_t stream) {
 
-  // Validate input sizes
-  if (input.size() != static_cast<usize>(N)) {
+  // Validate dimensions (following KuiperInfer)
+  if (static_cast<i32>(input.size()) != M) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Input size mismatch in matmul_gemv_cuda_launch");
   }
-  if (weight.size() != static_cast<usize>(M * N)) {
+
+  if (static_cast<i32>(weight.size()) != N * M) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Weight size mismatch in matmul_gemv_cuda_launch");
   }
-  if (output.size() != static_cast<usize>(M)) {
+
+  if (static_cast<i32>(output.size()) != N) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Output size mismatch in matmul_gemv_cuda_launch");
   }
 
-  // Check alignment for vectorization
-  if (N % MATMUL_PACK_SIZE != 0) {
+  // Check vectorization alignment (following KuiperInfer)
+  constexpr int packet_size = 4;
+  if (M % packet_size != 0) {
     return Err<void>(ErrorCode::InvalidArgument,
-                    "Input dimension N must be multiple of 4 for vectorization");
+                    "Input dimension M must be multiple of 4 for vectorization");
   }
 
-  // Launch configuration
-  constexpr i32 BLOCK_SIZE = MATMUL_BLOCK_SIZE;
-  constexpr i32 ROWS_PER_BLOCK = MATMUL_ROWS_PER_BLOCK;
-  const i32 grid_size = (M + ROWS_PER_BLOCK - 1) / ROWS_PER_BLOCK;
-
-  if (stream != nullptr) {
-    matmul_gemv_kernel<BLOCK_SIZE, ROWS_PER_BLOCK><<<grid_size, BLOCK_SIZE, 0, stream>>>(
-        input.data(), weight.data(), output.data(), M, N);
+  // Launch configuration (following KuiperInfer exactly)
+  // Template: <THREAD_PER_BLOCK=128, ROW_PER_BLOCK=1>
+  // Grid: N blocks, Block: 128 threads
+  const i32 K = N;  // Number of output elements
+  if (stream) {
+    matmul_kernel_cu_fp32<128, 1><<<K, 128, 0, stream>>>(
+        input.data(), weight.data(), output.data(), M, K);
   } else {
-    matmul_gemv_kernel<BLOCK_SIZE, ROWS_PER_BLOCK><<<grid_size, BLOCK_SIZE>>>(
-        input.data(), weight.data(), output.data(), M, N);
+    matmul_kernel_cu_fp32<128, 1><<<K, 128>>>(
+        input.data(), weight.data(), output.data(), M, K);
   }
 
+  // Check for launch errors
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
+    LOG(ERROR) << "CUDA matmul kernel launch failed: " << cudaGetErrorString(err);
     return Err<void>(ErrorCode::CudaError,
-                    std::string("CUDA matmul_gemv kernel launch failed: ") +
+                    std::string("CUDA matmul kernel launch failed: ") +
                         cudaGetErrorString(err));
   }
 
   return Ok();
 }
-
-Result<void> matmul_gemm_cuda_launch(
-    std::span<const f32> input,
-    std::span<const f32> weight,
-    std::span<f32> output,
-    i32 B,
-    i32 M,
-    i32 N,
-    cudaStream_t stream) {
-
-  // Validate input sizes
-  if (input.size() != static_cast<usize>(B * N)) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Input size mismatch in matmul_gemm_cuda_launch");
-  }
-  if (weight.size() != static_cast<usize>(M * N)) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Weight size mismatch in matmul_gemm_cuda_launch");
-  }
-  if (output.size() != static_cast<usize>(B * M)) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Output size mismatch in matmul_gemm_cuda_launch");
-  }
-
-  if (N % MATMUL_PACK_SIZE != 0) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Input dimension N must be multiple of 4 for vectorization");
-  }
-
-  // Launch configuration
-  constexpr i32 BLOCK_SIZE = MATMUL_BLOCK_SIZE;
-  constexpr i32 ROWS_PER_BLOCK = MATMUL_ROWS_PER_BLOCK;
-  const i32 total_outputs = B * M;
-  const i32 grid_size = (total_outputs + ROWS_PER_BLOCK - 1) / ROWS_PER_BLOCK;
-
-  if (stream != nullptr) {
-    matmul_gemm_kernel<BLOCK_SIZE, ROWS_PER_BLOCK><<<grid_size, BLOCK_SIZE, 0, stream>>>(
-        input.data(), weight.data(), output.data(), B, M, N);
-  } else {
-    matmul_gemm_kernel<BLOCK_SIZE, ROWS_PER_BLOCK><<<grid_size, BLOCK_SIZE>>>(
-        input.data(), weight.data(), output.data(), B, M, N);
-  }
-
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    return Err<void>(ErrorCode::CudaError,
-                    std::string("CUDA matmul_gemm kernel launch failed: ") +
-                        cudaGetErrorString(err));
-  }
-
-  return Ok();
-}
-
-// ============================================================================
-// Template Instantiation
-// ============================================================================
-
-template __global__ void matmul_gemv_kernel<MATMUL_BLOCK_SIZE, MATMUL_ROWS_PER_BLOCK>(
-    const float*, const float*, float*, i32, i32);
-template __global__ void matmul_gemm_kernel<MATMUL_BLOCK_SIZE, MATMUL_ROWS_PER_BLOCK>(
-    const float*, const float*, float*, i32, i32, i32);
 
 }  // namespace photon::kernels::cuda

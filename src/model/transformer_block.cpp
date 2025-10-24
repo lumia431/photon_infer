@@ -6,6 +6,10 @@
 
 #include "photon/model/transformer_block.hpp"
 
+#ifdef PHOTON_USE_CUDA
+#include <cuda_runtime.h>
+#endif
+
 namespace photon::model {
 
 TransformerBlock::TransformerBlock(i32 layer_idx, const TransformerConfig& config)
@@ -63,7 +67,7 @@ Result<void> TransformerBlock::init() {
   if (!swiglu_init) return swiglu_init;
 
   // Allocate intermediate buffers
-  auto device = config_.device;  // Use device from config
+  auto device = config_.device;
   auto dtype = DataType::Float32;
 
   auto create_buf = [&](i32 size) -> Result<Tensor> {
@@ -118,58 +122,55 @@ Result<void> TransformerBlock::init() {
   return Ok();
 }
 
-Result<void> TransformerBlock::set_wq(Tensor weight) {
-  auto result = wq_.set_weight(std::move(weight));
+// Helper function to convert weight to correct device
+template<typename OpType>
+Result<void> set_weight_with_device_conversion(
+    OpType& op, Tensor weight, DeviceType target_device) {
+  if (weight.device() != target_device) {
+    auto converted = weight.to(target_device);
+    if (!converted) return Err<void>(converted.error());
+    weight = std::move(converted.value());
+  }
+
+  auto result = op.set_weight(std::move(weight));
   if (!result) return result;
-  return wq_.init();
+  return op.init();
+}
+
+Result<void> TransformerBlock::set_wq(Tensor weight) {
+  return set_weight_with_device_conversion(wq_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_wk(Tensor weight) {
-  auto result = wk_.set_weight(std::move(weight));
-  if (!result) return result;
-  return wk_.init();
+  return set_weight_with_device_conversion(wk_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_wv(Tensor weight) {
-  auto result = wv_.set_weight(std::move(weight));
-  if (!result) return result;
-  return wv_.init();
+  return set_weight_with_device_conversion(wv_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_wo(Tensor weight) {
-  auto result = wo_.set_weight(std::move(weight));
-  if (!result) return result;
-  return wo_.init();
+  return set_weight_with_device_conversion(wo_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_w1(Tensor weight) {
-  auto result = w1_.set_weight(std::move(weight));
-  if (!result) return result;
-  return w1_.init();
+  return set_weight_with_device_conversion(w1_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_w2(Tensor weight) {
-  auto result = w2_.set_weight(std::move(weight));
-  if (!result) return result;
-  return w2_.init();
+  return set_weight_with_device_conversion(w2_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_w3(Tensor weight) {
-  auto result = w3_.set_weight(std::move(weight));
-  if (!result) return result;
-  return w3_.init();
+  return set_weight_with_device_conversion(w3_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_attn_norm(Tensor weight) {
-  auto result = attn_norm_.set_weight(std::move(weight));
-  if (!result) return result;
-  return attn_norm_.init();
+  return set_weight_with_device_conversion(attn_norm_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::set_ffn_norm(Tensor weight) {
-  auto result = ffn_norm_.set_weight(std::move(weight));
-  if (!result) return result;
-  return ffn_norm_.init();
+  return set_weight_with_device_conversion(ffn_norm_, std::move(weight), config_.device);
 }
 
 Result<void> TransformerBlock::forward(Tensor& x, i32 pos,
@@ -203,16 +204,40 @@ Result<void> TransformerBlock::forward(Tensor& x, i32 pos,
   // 4. Store K, V into cache at position pos
   // key_cache shape: [seq_len × kv_dim]
   // Copy k_ into key_cache[pos, :]
-  {
+  if (config_.device == DeviceType::CUDA) {
+#ifdef PHOTON_USE_CUDA
+    // Use cudaMemcpy for GPU tensors
+    f32* k_src = k_.ptr<f32>();
+    f32* key_cache_dst = key_cache.ptr<f32>() + pos * config_.kv_dim;
+    cudaError_t err = cudaMemcpy(key_cache_dst, k_src,
+                                 config_.kv_dim * sizeof(f32),
+                                 cudaMemcpyDeviceToDevice);
+    if (err != cudaSuccess) {
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to copy K to cache: ") +
+                      cudaGetErrorString(err));
+    }
+
+    // Copy V to cache
+    f32* v_src = v_.ptr<f32>();
+    f32* value_cache_dst = value_cache.ptr<f32>() + pos * config_.kv_dim;
+    err = cudaMemcpy(value_cache_dst, v_src,
+                    config_.kv_dim * sizeof(f32),
+                    cudaMemcpyDeviceToDevice);
+    if (err != cudaSuccess) {
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to copy V to cache: ") +
+                      cudaGetErrorString(err));
+    }
+#endif
+  } else {
+    // CPU: direct pointer access
     f32* k_ptr = k_.ptr<f32>();
     f32* key_cache_ptr = key_cache.ptr<f32>();
     for (i32 i = 0; i < config_.kv_dim; ++i) {
       key_cache_ptr[pos * config_.kv_dim + i] = k_ptr[i];
     }
-  }
 
-  // Copy v_ into value_cache[pos, :]
-  {
     f32* v_ptr = v_.ptr<f32>();
     f32* value_cache_ptr = value_cache.ptr<f32>();
     for (i32 i = 0; i < config_.kv_dim; ++i) {

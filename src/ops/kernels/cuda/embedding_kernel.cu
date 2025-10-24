@@ -1,74 +1,55 @@
 /**
  * @file embedding_kernel.cu
- * @brief CUDA implementation of embedding lookup
+ * @brief CUDA embedding kernel implementation
  * @version 0.1.0
+ *
+ * Strictly follows KuiperInfer implementation at:
+ * demos/kuiper_llama/kuiper/source/op/kernels/cuda/emb_kernel.cu
  */
 
 #include "photon/ops/kernels/cuda/embedding_kernel.cuh"
+#include <glog/logging.h>
 
 namespace photon::kernels::cuda {
 
-// ============================================================================
-// CUDA Kernel Implementation
-// ============================================================================
-
-template <i32 BLOCK_SIZE>
-__global__ void embedding_kernel(
-    const i32* __restrict__ tokens,
-    const float* __restrict__ weight,
-    float* __restrict__ output,
-    i32 num_tokens,
+/**
+ * @brief CUDA kernel for embedding lookup
+ *
+ * Following KuiperInfer line-by-line:
+ * - blockIdx.x = token index
+ * - threadIdx.x = dimension index (strided)
+ * - Grid: num_tokens blocks
+ * - Block: 128 threads
+ */
+__global__ void emb_kernel_cu_fp32(
     i32 vocab_size,
-    i32 embedding_dim) {
+    i32 token_num,
+    i32 weight_dim,
+    const i32* input_ptr,
+    const f32* weight_ptr,
+    f32* output_ptr) {
 
-  // Each block processes one token
-  const i32 token_idx = blockIdx.x;
-  if (token_idx >= num_tokens) {
+  // Following KuiperInfer: each block processes one token
+  i32 token_idx = blockIdx.x;
+  if (token_idx >= token_num) {
     return;
   }
 
-  // Get token ID and validate
-  const i32 token_id = tokens[token_idx];
-  if (token_id < 0 || token_id >= vocab_size) {
-    // Invalid token - fill with zeros
-    for (i32 i = threadIdx.x; i < embedding_dim; i += BLOCK_SIZE) {
-      output[token_idx * embedding_dim + i] = 0.0f;
-    }
+  // Get token ID and check validity
+  i32 token = input_ptr[token_idx];
+  if (token >= vocab_size) {
     return;
   }
 
-  // Calculate base pointers
-  const float* weight_base = weight + token_id * embedding_dim;
-  float* output_base = output + token_idx * embedding_dim;
+  // Calculate pointers (following KuiperInfer exactly)
+  f32* output_ptr_start = output_ptr + token_idx * weight_dim;
+  const f32* weight_ptr_start = weight_ptr + token * weight_dim;
 
-  // ============================================
-  // Vectorized copy (float4)
-  // ============================================
-  constexpr i32 PACK_SIZE = 4;
-  const i32 pack_num = embedding_dim / PACK_SIZE;
-  const i32 pack_off = pack_num * PACK_SIZE;
-
-  const i32 tid = threadIdx.x;
-
-  // Vectorized part
-  if (pack_num > 0) {
-    const float4* weight_pack = reinterpret_cast<const float4*>(weight_base);
-    float4* output_pack = reinterpret_cast<float4*>(output_base);
-
-    for (i32 i = tid; i < pack_num; i += BLOCK_SIZE) {
-      output_pack[i] = weight_pack[i];
-    }
-  }
-
-  // Scalar tail
-  for (i32 i = pack_off + tid; i < embedding_dim; i += BLOCK_SIZE) {
-    output_base[i] = weight_base[i];
+  // Each thread copies part of the embedding vector (following KuiperInfer)
+  for (i32 i = threadIdx.x; i < weight_dim; i += blockDim.x) {
+    output_ptr_start[i] = weight_ptr_start[i];
   }
 }
-
-// ============================================================================
-// Host-side Launch Function
-// ============================================================================
 
 Result<void> embedding_cuda_launch(
     std::span<const i32> tokens,
@@ -80,47 +61,39 @@ Result<void> embedding_cuda_launch(
     cudaStream_t stream) {
 
   // Validate input sizes
-  if (tokens.size() != static_cast<usize>(num_tokens)) {
+  if (static_cast<i32>(tokens.size()) != num_tokens) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Tokens size mismatch in embedding_cuda_launch");
   }
 
-  if (weight.size() != static_cast<usize>(vocab_size * embedding_dim)) {
+  if (static_cast<i32>(weight.size()) != vocab_size * embedding_dim) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Weight size mismatch in embedding_cuda_launch");
   }
 
-  if (output.size() != static_cast<usize>(num_tokens * embedding_dim)) {
+  if (static_cast<i32>(output.size()) != num_tokens * embedding_dim) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Output size mismatch in embedding_cuda_launch");
   }
 
-  if (num_tokens <= 0 || vocab_size <= 0 || embedding_dim <= 0) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Invalid dimensions in embedding_cuda_launch");
-  }
+  // Launch configuration (following KuiperInfer exactly)
+  constexpr i32 thread_num = 128;
 
-  // Launch configuration
-  constexpr i32 BLOCK_SIZE = EMBEDDING_BLOCK_SIZE;
-  const i32 grid_size = num_tokens;
-
-  if (grid_size > EMBEDDING_MAX_SEQ_LEN) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Number of tokens exceeds maximum sequence length");
-  }
-
-  if (stream != nullptr) {
-    embedding_kernel<BLOCK_SIZE><<<grid_size, BLOCK_SIZE, 0, stream>>>(
-        tokens.data(), weight.data(), output.data(),
-        num_tokens, vocab_size, embedding_dim);
+  // Launch kernel: grid size = num_tokens (one block per token)
+  if (stream) {
+    emb_kernel_cu_fp32<<<num_tokens, thread_num, 0, stream>>>(
+        vocab_size, num_tokens, embedding_dim,
+        tokens.data(), weight.data(), output.data());
   } else {
-    embedding_kernel<BLOCK_SIZE><<<grid_size, BLOCK_SIZE>>>(
-        tokens.data(), weight.data(), output.data(),
-        num_tokens, vocab_size, embedding_dim);
+    emb_kernel_cu_fp32<<<num_tokens, thread_num>>>(
+        vocab_size, num_tokens, embedding_dim,
+        tokens.data(), weight.data(), output.data());
   }
 
+  // Check for launch errors
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
+    LOG(ERROR) << "CUDA embedding kernel launch failed: " << cudaGetErrorString(err);
     return Err<void>(ErrorCode::CudaError,
                     std::string("CUDA embedding kernel launch failed: ") +
                         cudaGetErrorString(err));
@@ -128,12 +101,5 @@ Result<void> embedding_cuda_launch(
 
   return Ok();
 }
-
-// ============================================================================
-// Template Instantiation
-// ============================================================================
-
-template __global__ void embedding_kernel<EMBEDDING_BLOCK_SIZE>(
-    const i32*, const float*, float*, i32, i32, i32);
 
 }  // namespace photon::kernels::cuda

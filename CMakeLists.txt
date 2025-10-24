@@ -12,7 +12,7 @@ project(
 # ============================================================================
 option(PHOTON_BUILD_TESTS "Build unit tests" ON)
 option(PHOTON_BUILD_EXAMPLES "Build examples" ON)
-option(PHOTON_BUILD_CUDA "Build with CUDA support" ON)
+option(PHOTON_BUILD_CUDA "Build with CUDA support" ON)  # Default ON for CUDA
 option(PHOTON_BUILD_SHARED "Build shared libraries" OFF)
 option(PHOTON_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(PHOTON_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
@@ -142,6 +142,53 @@ endif()
 
 # Demo executable
 add_subdirectory(demo)
+
+# Debug executables for CUDA validation
+if(PHOTON_BUILD_CUDA)
+  add_executable(debug_embedding debug_embedding.cpp)
+  target_link_libraries(debug_embedding
+    PRIVATE
+      photon_core
+      CUDA::cudart
+  )
+  target_include_directories(debug_embedding
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/include
+  )
+
+  add_executable(debug_ops debug_ops.cpp)
+  target_link_libraries(debug_ops
+    PRIVATE
+      photon_core
+      CUDA::cudart
+  )
+  target_include_directories(debug_ops
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/include
+  )
+
+  add_executable(debug_complex_ops debug_complex_ops.cpp)
+  target_link_libraries(debug_complex_ops
+    PRIVATE
+      photon_core
+      CUDA::cudart
+  )
+  target_include_directories(debug_complex_ops
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/include
+  )
+
+  add_executable(debug_first_token debug_first_token.cpp)
+  target_link_libraries(debug_first_token
+    PRIVATE
+      photon_core
+      CUDA::cudart
+  )
+  target_include_directories(debug_first_token
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/include
+  )
+endif()
 
 # Examples directory removed as per user request
 # if(PHOTON_BUILD_EXAMPLES)

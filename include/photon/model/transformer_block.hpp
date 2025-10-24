@@ -33,7 +33,7 @@ struct TransformerConfig {
   i32 head_size;     // Dimension per head
   i32 seq_len;       // Maximum sequence length
   f32 norm_eps;      // RMSNorm epsilon
-  DeviceType device = DeviceType::CPU;  // Device to run on
+  DeviceType device = DeviceType::CPU;  // Device for computation
 
   // Computed values
   i32 kv_dim;        // KV dimension (n_kv_heads * head_size)

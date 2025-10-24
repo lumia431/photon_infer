@@ -119,6 +119,14 @@ class Tensor {
    */
   Tensor& operator=(Tensor&& other) noexcept = default;
 
+  /**
+   * @brief Copy tensor to a different device
+   *
+   * @param target_device Target device (CPU or CUDA)
+   * @return Result containing new tensor on target device
+   */
+  [[nodiscard]] Result<Tensor> to(DeviceType target_device) const;
+
   // ========== Getters ==========
 
   /**

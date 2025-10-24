@@ -6,6 +6,11 @@
 
 #include "photon/model/llama_model.hpp"
 #include <algorithm>
+#include <cstring>
+
+#ifdef PHOTON_USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 namespace photon::model {
 
@@ -15,7 +20,7 @@ LLaMAModel::LLaMAModel(const TransformerConfig& config)
       final_norm_(config.dim, config.norm_eps),
       classifier_(config.dim, config.vocab_size) {  // Fixed: input=dim, output=vocab_size
 
-  // Set device for top-level operators
+  // Set device for all operators
   embedding_.set_device(config.device);
   final_norm_.set_device(config.device);
   classifier_.set_device(config.device);
@@ -42,7 +47,7 @@ Result<void> LLaMAModel::init() {
   }
 
   // Allocate KV cache for each layer
-  auto device = config_.device;  // Use device from config
+  auto device = config_.device;
   auto dtype = DataType::Float32;
 
   key_cache_.clear();
@@ -86,18 +91,39 @@ Result<void> LLaMAModel::init() {
 }
 
 Result<void> LLaMAModel::set_embedding(Tensor weight) {
+  // Convert to model's device if needed
+  if (weight.device() != config_.device) {
+    auto converted = weight.to(config_.device);
+    if (!converted) return Err<void>(converted.error());
+    weight = std::move(converted.value());
+  }
+
   auto result = embedding_.set_weight(std::move(weight));
   if (!result) return result;
   return embedding_.init();
 }
 
 Result<void> LLaMAModel::set_final_norm(Tensor weight) {
+  // Convert to model's device if needed
+  if (weight.device() != config_.device) {
+    auto converted = weight.to(config_.device);
+    if (!converted) return Err<void>(converted.error());
+    weight = std::move(converted.value());
+  }
+
   auto result = final_norm_.set_weight(std::move(weight));
   if (!result) return result;
   return final_norm_.init();
 }
 
 Result<void> LLaMAModel::set_classifier(Tensor weight) {
+  // Convert to model's device if needed
+  if (weight.device() != config_.device) {
+    auto converted = weight.to(config_.device);
+    if (!converted) return Err<void>(converted.error());
+    weight = std::move(converted.value());
+  }
+
   auto result = classifier_.set_weight(std::move(weight));
   if (!result) return result;
   return classifier_.init();
@@ -118,22 +144,48 @@ Result<void> LLaMAModel::forward(i32 token, i32 pos, Tensor& logits) {
   }
 
   // 1. Embedding lookup
-  // Create a temporary tensor with the single token
-  auto token_tensor = Tensor::create({1}, DataType::Int32, DeviceType::CPU);
+  // Create a temporary tensor with the single token (on correct device)
+  auto token_tensor = Tensor::create({1}, DataType::Int32, config_.device);
   if (!token_tensor) {
     return Err<void>(token_tensor.error());
   }
-  i32* token_ptr = token_tensor.value().ptr<i32>();
-  token_ptr[0] = token;
+
+  // For CUDA, we need to copy token from CPU to GPU
+  if (config_.device == DeviceType::CUDA) {
+    i32 token_cpu = token;
+    cudaError_t err = cudaMemcpy(token_tensor.value().data(), &token_cpu,
+                                 sizeof(i32), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to copy token to GPU: ") +
+                      cudaGetErrorString(err));
+    }
+  } else {
+    i32* token_ptr = token_tensor.value().ptr<i32>();
+    token_ptr[0] = token;
+  }
 
   auto emb_result = embedding_.forward(token_tensor.value(), emb_out_);
   if (!emb_result) return emb_result;
 
   // Copy embedding to x_ (emb_out_ is [1 × dim], x_ is [dim])
-  f32* emb_ptr = emb_out_.ptr<f32>();
-  f32* x_ptr = x_.ptr<f32>();
-  for (i32 i = 0; i < config_.dim; ++i) {
-    x_ptr[i] = emb_ptr[i];  // Copy from first (and only) row
+  if (config_.device == DeviceType::CUDA) {
+    // Use cudaMemcpy for GPU tensors
+    cudaError_t err = cudaMemcpy(x_.data(), emb_out_.data(),
+                                 config_.dim * sizeof(f32),
+                                 cudaMemcpyDeviceToDevice);
+    if (err != cudaSuccess) {
+      return Err<void>(ErrorCode::CudaError,
+                      std::string("Failed to copy embedding to x: ") +
+                      cudaGetErrorString(err));
+    }
+  } else {
+    // CPU: direct pointer access
+    f32* emb_ptr = emb_out_.ptr<f32>();
+    f32* x_ptr = x_.ptr<f32>();
+    for (i32 i = 0; i < config_.dim; ++i) {
+      x_ptr[i] = emb_ptr[i];
+    }
   }
 
   // 2. Forward through all transformer blocks
@@ -148,8 +200,23 @@ Result<void> LLaMAModel::forward(i32 token, i32 pos, Tensor& logits) {
   if (!norm_result) return norm_result;
 
   // 4. Classifier projection
-  auto cls_result = classifier_.forward(norm_out_, logits);
-  if (!cls_result) return cls_result;
+  // If logits is on a different device, use internal buffer and copy
+  if (logits.device() == config_.device) {
+    // Same device, direct output
+    auto cls_result = classifier_.forward(norm_out_, logits);
+    if (!cls_result) return cls_result;
+  } else {
+    // Different device, use internal buffer then copy
+    auto cls_result = classifier_.forward(norm_out_, logits_buf_);
+    if (!cls_result) return cls_result;
+
+    // Copy from CUDA to CPU (or vice versa)
+    auto converted = logits_buf_.to(logits.device());
+    if (!converted) return Err<void>(converted.error());
+
+    // Copy data to output tensor
+    std::memcpy(logits.data(), converted.value().data(), logits.byte_size());
+  }
 
   return Ok();
 }

@@ -154,19 +154,22 @@ Result<void> MatMulOp::forward_cuda(const Tensor& input, Tensor& output) {
   std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
   std::span<f32> output_data(output.ptr<f32>(), output.size());
 
-  // Dispatch based on input shape
-  if (input.ndim() == 1) {
-    // GEMV: [N] @ [M×N]^T -> [M]
-    return kernels::cuda::matmul_gemv_cuda_launch(
-        input_data, weight_data, output_data,
-        output_dim_, input_dim_);
-  } else {
-    // GEMM: [B×N] @ [M×N]^T -> [B×M]
-    i32 batch_size = input.dim(0);
-    return kernels::cuda::matmul_gemm_cuda_launch(
-        input_data, weight_data, output_data,
-        batch_size, output_dim_, input_dim_);
+  // Only support GEMV for now (following KuiperInfer)
+  // GEMV: [N] @ [M×N]^T -> [M]
+  if (input.ndim() != 1) {
+    return Err<void>(ErrorCode::NotImplemented,
+                    "CUDA matmul only supports 1D input (GEMV) for now");
   }
+
+  // Launch CUDA kernel (following KuiperInfer)
+  // Note: KuiperInfer uses M for input dim, K for output dim
+  i32 M = input_dim_;   // Input dimension
+  i32 K = output_dim_;  // Output dimension (number of rows in weight)
+
+  return kernels::cuda::matmul_gemv_cuda_launch(
+      input_data, weight_data, output_data,
+      M, K,
+      nullptr);  // stream = nullptr for now
 }
 #endif
 

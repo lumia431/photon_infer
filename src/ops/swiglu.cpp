@@ -128,13 +128,15 @@ Result<void> SwiGLUOp::forward_cpu(const Tensor& input1, const Tensor& input2, T
 
 #ifdef PHOTON_USE_CUDA
 Result<void> SwiGLUOp::forward_cuda(const Tensor& input1, const Tensor& input2, Tensor& output) {
-  // Create spans for CUDA kernel launch
+  // Create spans for CUDA kernel (following KuiperInfer)
   std::span<const f32> input1_data(input1.ptr<f32>(), input1.size());
   std::span<const f32> input2_data(input2.ptr<f32>(), input2.size());
   std::span<f32> output_data(output.ptr<f32>(), output.size());
 
+  // Launch CUDA kernel
   return kernels::cuda::swiglu_cuda_launch(
-      input1_data, input2_data, output_data, hidden_dim_);
+      input1_data, input2_data, output_data,
+      hidden_dim_, nullptr);
 }
 #endif
 

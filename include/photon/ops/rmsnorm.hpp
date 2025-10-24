@@ -101,9 +101,13 @@ class RMSNormOp : public ParameterizedOperator<RMSNormOp> {
                       "RMSNorm weight must be Float32");
     }
 
+    // Auto-convert weight to operator's device if needed
     if (weight.device() != device_) {
-      return Err<void>(ErrorCode::DeviceMismatch,
-                      "Weight device does not match operator device");
+      auto converted = weight.to(device_);
+      if (!converted) {
+        return Err<void>(converted.error());
+      }
+      weight = std::move(converted.value());
     }
 
     weights_[0] = std::move(weight);

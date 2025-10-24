@@ -6,12 +6,11 @@
 
 #include "photon/ops/add.hpp"
 #include "photon/ops/kernels/add_kernel.hpp"
+#include <span>
 
 #ifdef PHOTON_USE_CUDA
 #include "photon/ops/kernels/cuda/add_kernel.cuh"
 #endif
-
-#include <span>
 
 namespace photon {
 
@@ -68,7 +67,7 @@ Result<void> AddOp::forward(const Tensor& input1, const Tensor& input2, Tensor& 
   // Get tensor size
   i32 len = static_cast<i32>(input1.size());
 
-  // Dispatch to appropriate kernel based on dtype
+  // Dispatch to appropriate kernel based on device
   if (device_ == DeviceType::CPU) {
     if (input1.dtype() == DataType::Float32) {
       auto input1_map = input1.vector_map<f32>();
@@ -111,13 +110,14 @@ Result<void> AddOp::forward(const Tensor& input1, const Tensor& input2, Tensor& 
   }
 #ifdef PHOTON_USE_CUDA
   else if (device_ == DeviceType::CUDA) {
+    // CUDA path (following KuiperInfer)
     if (input1.dtype() == DataType::Float32) {
       std::span<const f32> input1_span(input1.ptr<f32>(), input1.size());
       std::span<const f32> input2_span(input2.ptr<f32>(), input2.size());
       std::span<f32> output_span(output.ptr<f32>(), output.size());
 
       return kernels::cuda::add_cuda_launch(
-          input1_span, input2_span, output_span, len);
+          input1_span, input2_span, output_span, len, nullptr);
     } else {
       return Err<void>(ErrorCode::InvalidArgument,
                   "CUDA Add only supports Float32");
