@@ -7,6 +7,10 @@
 #include "photon/ops/rope.hpp"
 #include "photon/ops/kernels/rope_kernel.hpp"
 
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/rope_kernel.cuh"
+#endif
+
 namespace photon {
 
 // ============================================================================
@@ -123,8 +127,15 @@ Result<void> RoPEOp::forward_cpu(Tensor& q, Tensor& k, i32 pos) {
 
 #ifdef PHOTON_USE_CUDA
 Result<void> RoPEOp::forward_cuda(Tensor& q, Tensor& k, i32 pos) {
-  return Err<void>(ErrorCode::NotImplemented,
-                  "CUDA RoPE not yet implemented");
+  // Create spans for CUDA kernel launch
+  std::span<f32> q_data(q.ptr<f32>(), q.size());
+  std::span<f32> k_data(k.ptr<f32>(), k.size());
+  std::span<const f32> sin_data(sin_cache_.data(), sin_cache_.size());
+  std::span<const f32> cos_data(cos_cache_.data(), cos_cache_.size());
+
+  return kernels::cuda::rope_cuda_launch(
+      q_data, k_data, sin_data, cos_data,
+      pos, dim_, kv_dim_, head_size_);
 }
 #endif
 

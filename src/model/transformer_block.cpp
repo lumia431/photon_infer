@@ -23,7 +23,22 @@ TransformerBlock::TransformerBlock(i32 layer_idx, const TransformerConfig& confi
       rope_(config.dim, config.kv_dim, config.head_size, config.seq_len),
       mha_(config.dim, config.kv_dim, config.n_heads, config.head_size, config.seq_len),
       add_(),
-      swiglu_(config.hidden_dim) {}
+      swiglu_(config.hidden_dim) {
+  // Set device for all operators
+  attn_norm_.set_device(config.device);
+  ffn_norm_.set_device(config.device);
+  wq_.set_device(config.device);
+  wk_.set_device(config.device);
+  wv_.set_device(config.device);
+  wo_.set_device(config.device);
+  w1_.set_device(config.device);
+  w2_.set_device(config.device);
+  w3_.set_device(config.device);
+  rope_.set_device(config.device);
+  mha_.set_device(config.device);
+  add_.set_device(config.device);
+  swiglu_.set_device(config.device);
+}
 
 Result<void> TransformerBlock::init() {
   if (initialized_) {
@@ -48,7 +63,7 @@ Result<void> TransformerBlock::init() {
   if (!swiglu_init) return swiglu_init;
 
   // Allocate intermediate buffers
-  auto device = DeviceType::CPU;
+  auto device = config_.device;  // Use device from config
   auto dtype = DataType::Float32;
 
   auto create_buf = [&](i32 size) -> Result<Tensor> {

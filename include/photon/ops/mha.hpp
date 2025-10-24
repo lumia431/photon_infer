@@ -84,6 +84,16 @@ class MHAOp : public OperatorBase<MHAOp> {
   }
 
  private:
+  Result<void> forward_cpu(const Tensor& query, const Tensor& key_cache,
+                          const Tensor& value_cache, Tensor& output,
+                          Tensor& score, i32 pos);
+
+#ifdef PHOTON_USE_CUDA
+  Result<void> forward_cuda(const Tensor& query, const Tensor& key_cache,
+                           const Tensor& value_cache, Tensor& output,
+                           Tensor& score, i32 pos);
+#endif
+
   i32 dim_;        // Total query dimension (head_num * head_size)
   i32 kv_dim_;     // Total key/value dimension (for GQA)
   i32 head_num_;   // Number of query heads

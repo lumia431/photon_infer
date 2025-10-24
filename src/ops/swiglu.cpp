@@ -7,6 +7,10 @@
 #include "photon/ops/swiglu.hpp"
 #include "photon/ops/kernels/swiglu_kernel.hpp"
 
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/swiglu_kernel.cuh"
+#endif
+
 namespace photon {
 
 // ============================================================================
@@ -124,8 +128,13 @@ Result<void> SwiGLUOp::forward_cpu(const Tensor& input1, const Tensor& input2, T
 
 #ifdef PHOTON_USE_CUDA
 Result<void> SwiGLUOp::forward_cuda(const Tensor& input1, const Tensor& input2, Tensor& output) {
-  return Err<void>(ErrorCode::NotImplemented,
-                  "CUDA swiglu not yet implemented");
+  // Create spans for CUDA kernel launch
+  std::span<const f32> input1_data(input1.ptr<f32>(), input1.size());
+  std::span<const f32> input2_data(input2.ptr<f32>(), input2.size());
+  std::span<f32> output_data(output.ptr<f32>(), output.size());
+
+  return kernels::cuda::swiglu_cuda_launch(
+      input1_data, input2_data, output_data, hidden_dim_);
 }
 #endif
 

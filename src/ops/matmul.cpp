@@ -7,6 +7,10 @@
 #include "photon/ops/matmul.hpp"
 #include "photon/ops/kernels/matmul_kernel.hpp"
 
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/matmul_kernel.cuh"
+#endif
+
 namespace photon {
 
 // ============================================================================
@@ -142,8 +146,27 @@ Result<void> MatMulOp::forward_cpu(const Tensor& input, Tensor& output) {
 
 #ifdef PHOTON_USE_CUDA
 Result<void> MatMulOp::forward_cuda(const Tensor& input, Tensor& output) {
-  return Err<void>(ErrorCode::NotImplemented,
-                  "CUDA matmul not yet implemented");
+  // Get weight tensor
+  const Tensor& weight = weights_[0];
+
+  // Create spans for CUDA kernel launch
+  std::span<const f32> input_data(input.ptr<f32>(), input.size());
+  std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
+  std::span<f32> output_data(output.ptr<f32>(), output.size());
+
+  // Dispatch based on input shape
+  if (input.ndim() == 1) {
+    // GEMV: [N] @ [M×N]^T -> [M]
+    return kernels::cuda::matmul_gemv_cuda_launch(
+        input_data, weight_data, output_data,
+        output_dim_, input_dim_);
+  } else {
+    // GEMM: [B×N] @ [M×N]^T -> [B×M]
+    i32 batch_size = input.dim(0);
+    return kernels::cuda::matmul_gemm_cuda_launch(
+        input_data, weight_data, output_data,
+        batch_size, output_dim_, input_dim_);
+  }
 }
 #endif
 

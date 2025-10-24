@@ -56,7 +56,7 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
 
   // Create logits buffer
   const auto& config = model.config();
-  auto logits_result = Tensor::create({config.vocab_size}, DataType::Float32, DeviceType::CPU);
+  auto logits_result = Tensor::create({config.vocab_size}, DataType::Float32, config.device);
   if (!logits_result) {
     std::cerr << "Error: Failed to create logits buffer\n";
     return 0;
@@ -140,9 +140,10 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
 }
 
 int main(int argc, char* argv[]) {
-  if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " <checkpoint_path> <tokenizer_path>\n";
-    std::cerr << "Example: " << argv[0] << " model.bin tokenizer.model\n";
+  if (argc < 3 || argc > 4) {
+    std::cerr << "Usage: " << argv[0] << " <checkpoint_path> <tokenizer_path> [device]\n";
+    std::cerr << "  device: cpu (default) or cuda\n";
+    std::cerr << "Example: " << argv[0] << " model.bin tokenizer.model cuda\n";
     return 1;
   }
 
@@ -152,8 +153,22 @@ int main(int argc, char* argv[]) {
   const std::string checkpoint_path = argv[1];
   const std::string tokenizer_path = argv[2];
 
+  // Parse device argument
+  DeviceType device = DeviceType::CPU;
+  if (argc == 4) {
+    std::string device_str = argv[3];
+    std::transform(device_str.begin(), device_str.end(), device_str.begin(), ::tolower);
+    if (device_str == "cuda") {
+      device = DeviceType::CUDA;
+    } else if (device_str != "cpu") {
+      std::cerr << "Unknown device: " << device_str << " (use 'cpu' or 'cuda')\n";
+      return 1;
+    }
+  }
+
   std::cout << "PhotonInfer - LLaMA Inference Demo\n";
-  std::cout << "===================================\n\n";
+  std::cout << "===================================\n";
+  std::cout << "Device: " << (device == DeviceType::CPU ? "CPU" : "CUDA") << "\n\n";
 
   // Load tokenizer
   std::cout << "Loading tokenizer from: " << tokenizer_path << "\n";
@@ -197,6 +212,7 @@ int main(int argc, char* argv[]) {
   config.seq_len = header.seq_len;
   config.head_size = header.dim / header.n_heads;
   config.norm_eps = 1e-5f;
+  config.device = device;  // Set device from command line argument
   config.compute_derived();
 
   // Create model

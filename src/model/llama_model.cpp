@@ -15,6 +15,11 @@ LLaMAModel::LLaMAModel(const TransformerConfig& config)
       final_norm_(config.dim, config.norm_eps),
       classifier_(config.dim, config.vocab_size) {  // Fixed: input=dim, output=vocab_size
 
+  // Set device for top-level operators
+  embedding_.set_device(config.device);
+  final_norm_.set_device(config.device);
+  classifier_.set_device(config.device);
+
   // Create transformer blocks
   blocks_.reserve(config.n_layers);
   for (i32 i = 0; i < config.n_layers; ++i) {
@@ -37,7 +42,7 @@ Result<void> LLaMAModel::init() {
   }
 
   // Allocate KV cache for each layer
-  auto device = DeviceType::CPU;
+  auto device = config_.device;  // Use device from config
   auto dtype = DataType::Float32;
 
   key_cache_.clear();
