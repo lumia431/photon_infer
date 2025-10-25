@@ -143,52 +143,17 @@ endif()
 # Demo executable
 add_subdirectory(demo)
 
-# Debug executables for CUDA validation
-if(PHOTON_BUILD_CUDA)
-  add_executable(debug_embedding debug_embedding.cpp)
-  target_link_libraries(debug_embedding
-    PRIVATE
-      photon_core
-      CUDA::cudart
-  )
-  target_include_directories(debug_embedding
-    PRIVATE
-      ${PROJECT_SOURCE_DIR}/include
-  )
-
-  add_executable(debug_ops debug_ops.cpp)
-  target_link_libraries(debug_ops
-    PRIVATE
-      photon_core
-      CUDA::cudart
-  )
-  target_include_directories(debug_ops
-    PRIVATE
-      ${PROJECT_SOURCE_DIR}/include
-  )
-
-  add_executable(debug_complex_ops debug_complex_ops.cpp)
-  target_link_libraries(debug_complex_ops
-    PRIVATE
-      photon_core
-      CUDA::cudart
-  )
-  target_include_directories(debug_complex_ops
-    PRIVATE
-      ${PROJECT_SOURCE_DIR}/include
-  )
-
-  add_executable(debug_first_token debug_first_token.cpp)
-  target_link_libraries(debug_first_token
-    PRIVATE
-      photon_core
-      CUDA::cudart
-  )
-  target_include_directories(debug_first_token
-    PRIVATE
-      ${PROJECT_SOURCE_DIR}/include
-  )
-endif()
+# Tools
+add_executable(quantize_model tools/quantize_model.cpp)
+target_link_libraries(quantize_model
+  PRIVATE
+    photon_core
+    glog::glog
+)
+target_include_directories(quantize_model
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
 
 # Examples directory removed as per user request
 # if(PHOTON_BUILD_EXAMPLES)

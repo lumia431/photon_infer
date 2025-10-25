@@ -6,6 +6,7 @@
 
 #include "photon/model/llama_model.hpp"
 #include <algorithm>
+#include <iostream>
 #include <cstring>
 
 #ifdef PHOTON_USE_CUDA
@@ -275,6 +276,36 @@ Result<i32> argmax_sample(const Tensor& logits) {
   }
 
   return Ok(max_idx);
+}
+
+Result<void> LLaMAModel::quantize_weights(i32 group_size) {
+  std::cout << "Quantizing model weights to INT8 (group_size=" << group_size << ")..." << std::endl;
+
+  // Quantize all transformer blocks
+  for (usize i = 0; i < blocks_.size(); ++i) {
+    std::cout << "  Layer " << i << "/" << blocks_.size() << "..." << std::flush;
+    auto result = blocks_[i]->quantize_weights(group_size);
+    if (!result) {
+      return Err<void>(result.error().code(),
+                      "Failed to quantize layer " + std::to_string(i) + ": " +
+                      result.error().message());
+    }
+    std::cout << " done" << std::endl;
+  }
+
+  // Quantize classifier
+  std::cout << "  Classifier..." << std::flush;
+  auto classifier_result = classifier_.quantize_weight(group_size);
+  if (!classifier_result) {
+    return Err<void>(classifier_result.error().code(),
+                    "Failed to quantize classifier: " +
+                    classifier_result.error().message());
+  }
+  std::cout << " done" << std::endl;
+
+  std::cout << "✓ Quantization complete! Model memory reduced by ~3.8x" << std::endl;
+
+  return Ok();
 }
 
 }  // namespace photon::model

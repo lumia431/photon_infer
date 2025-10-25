@@ -285,4 +285,28 @@ Result<void> TransformerBlock::forward(Tensor& x, i32 pos,
   return Ok();
 }
 
+Result<void> TransformerBlock::quantize_weights(i32 group_size) {
+  // Quantize all MatMul weights in this block
+  std::vector<std::pair<const char*, MatMulOp*>> matmuls = {
+      {"wq", &wq_},
+      {"wk", &wk_},
+      {"wv", &wv_},
+      {"wo", &wo_},
+      {"w1", &w1_},
+      {"w2", &w2_},
+      {"w3", &w3_}
+  };
+
+  for (const auto& [name, matmul] : matmuls) {
+    auto result = matmul->quantize_weight(group_size);
+    if (!result) {
+      return Err<void>(result.error().code(),
+                      std::string("Failed to quantize ") + name + " in layer " +
+                      std::to_string(layer_idx_) + ": " + result.error().message());
+    }
+  }
+
+  return Ok();
+}
+
 }  // namespace photon::model

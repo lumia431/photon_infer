@@ -9,12 +9,14 @@ add_executable(photon_tests
   core/test_allocator.cpp
   core/test_buffer.cpp
   core/test_tensor.cpp
+  core/test_quant.cpp
   model/test_model_loader.cpp
   model/test_tokenizer.cpp
   model/test_llama32_integration.cpp
   model/test_llama_model.cpp
   ops/test_embedding.cpp
   ops/test_matmul.cpp
+  ops/test_matmul_quant.cpp
   ops/test_rmsnorm.cpp
   ops/test_rope.cpp
   ops/test_swiglu.cpp

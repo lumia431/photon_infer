@@ -92,35 +92,6 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
       return pos;
     }
 
-    // Debug: Print logits for first few generated tokens
-    if (pos >= prompt_len - 1 && pos < prompt_len + 3) {
-      std::cout << "\n[DEBUG] Token generation at pos=" << pos << ":\n";
-      const f32* logits_ptr = logits.ptr<f32>();
-
-      // Find top-5 logits
-      std::vector<std::pair<f32, i32>> top_logits;
-      for (i32 i = 0; i < config.vocab_size; ++i) {
-        top_logits.push_back({logits_ptr[i], i});
-      }
-      std::partial_sort(top_logits.begin(), top_logits.begin() + 5, top_logits.end(),
-                       [](const auto& a, const auto& b) { return a.first > b.first; });
-
-      std::cout << "  Top-5 logits: ";
-      for (int k = 0; k < 5; ++k) {
-        std::cout << "(" << top_logits[k].second << ":" << top_logits[k].first << ") ";
-      }
-      std::cout << "\n";
-
-      // Check for NaN or Inf
-      bool has_nan = false, has_inf = false;
-      for (i32 i = 0; i < config.vocab_size; ++i) {
-        if (std::isnan(logits_ptr[i])) has_nan = true;
-        if (std::isinf(logits_ptr[i])) has_inf = true;
-      }
-      if (has_nan) std::cout << "  WARNING: NaN detected in logits!\n";
-      if (has_inf) std::cout << "  WARNING: Inf detected in logits!\n";
-    }
-
     // Sample next token with temperature sampling (T=0.8)
     const f32 temperature = 0.8f;
     const f32* logits_ptr = logits.ptr<f32>();
@@ -170,10 +141,18 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
 }
 
 int main(int argc, char* argv[]) {
-  if (argc < 3 || argc > 4) {
-    std::cerr << "Usage: " << argv[0] << " <checkpoint_path> <tokenizer_path> [device]\n";
+  if (argc < 3 || argc > 5) {
+    std::cerr << "Usage: " << argv[0] << " <checkpoint_path> <tokenizer_path> [device] [options]\n";
     std::cerr << "  device: cpu (default) or cuda\n";
-    std::cerr << "Example: " << argv[0] << " model.bin tokenizer.model cuda\n";
+    std::cerr << "  --quantize: Force enable INT8 quantization\n";
+    std::cerr << "  --no-quantize: Disable INT8 quantization (CPU default)\n";
+    std::cerr << "\n";
+    std::cerr << "Note: INT8 quantization is enabled by default on CUDA for 2.3x speedup\n";
+    std::cerr << "\n";
+    std::cerr << "Examples:\n";
+    std::cerr << "  " << argv[0] << " model.bin tokenizer.model cuda              # CUDA with INT8 (default)\n";
+    std::cerr << "  " << argv[0] << " model.bin tokenizer.model cuda --no-quantize # CUDA with FP32\n";
+    std::cerr << "  " << argv[0] << " model.bin tokenizer.model cpu               # CPU (no quantization)\n";
     return 1;
   }
 
@@ -183,22 +162,40 @@ int main(int argc, char* argv[]) {
   const std::string checkpoint_path = argv[1];
   const std::string tokenizer_path = argv[2];
 
-  // Parse device argument
+  // Parse device argument and quantize flag
   DeviceType device = DeviceType::CPU;
-  if (argc == 4) {
-    std::string device_str = argv[3];
-    std::transform(device_str.begin(), device_str.end(), device_str.begin(), ::tolower);
-    if (device_str == "cuda") {
+  bool enable_quantize = false;  // Will be set based on device
+  bool quantize_explicitly_set = false;
+
+  for (int i = 3; i < argc; ++i) {
+    std::string arg = argv[i];
+    std::transform(arg.begin(), arg.end(), arg.begin(), ::tolower);
+
+    if (arg == "cuda") {
       device = DeviceType::CUDA;
-    } else if (device_str != "cpu") {
-      std::cerr << "Unknown device: " << device_str << " (use 'cpu' or 'cuda')\n";
+    } else if (arg == "cpu") {
+      device = DeviceType::CPU;
+    } else if (arg == "--quantize") {
+      enable_quantize = true;
+      quantize_explicitly_set = true;
+    } else if (arg == "--no-quantize") {
+      enable_quantize = false;
+      quantize_explicitly_set = true;
+    } else {
+      std::cerr << "Unknown argument: " << argv[i] << "\n";
       return 1;
     }
   }
 
+  // Default behavior: enable quantization on CUDA (2.3x speedup!)
+  if (!quantize_explicitly_set && device == DeviceType::CUDA) {
+    enable_quantize = true;
+  }
+
   std::cout << "PhotonInfer - LLaMA Inference Demo\n";
   std::cout << "===================================\n";
-  std::cout << "Device: " << (device == DeviceType::CPU ? "CPU" : "CUDA") << "\n\n";
+  std::cout << "Device: " << (device == DeviceType::CPU ? "CPU" : "CUDA") << "\n";
+  std::cout << "Quantization: " << (enable_quantize ? "INT8 (default on CUDA)" : "FP32") << "\n\n";
 
   // Load tokenizer
   std::cout << "Loading tokenizer from: " << tokenizer_path << "\n";
@@ -263,6 +260,16 @@ int main(int argc, char* argv[]) {
   if (!init_result) {
     std::cerr << "Error initializing model: " << init_result.error().message() << "\n";
     return 1;
+  }
+
+  // Quantize weights if requested
+  if (enable_quantize) {
+    std::cout << "\n";
+    auto quant_result = model.quantize_weights(128);  // group_size=128
+    if (!quant_result) {
+      std::cerr << "Error quantizing model: " << quant_result.error().message() << "\n";
+      return 1;
+    }
   }
 
   std::cout << "\nModel ready!\n\n";

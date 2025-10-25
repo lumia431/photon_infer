@@ -127,6 +127,20 @@ class LLaMAModel {
    */
   void reset_cache();
 
+  /**
+   * @brief Quantize all model weights to INT8
+   *
+   * Quantizes all MatMul weights (transformer blocks + classifier) in-place.
+   * This significantly reduces memory usage (~3.8x compression) with minimal
+   * accuracy loss (RMSE < 0.06).
+   *
+   * Must be called after weights are loaded and before inference begins.
+   *
+   * @param group_size Group size for quantization (default 128)
+   * @return Result<void> Success or error
+   */
+  Result<void> quantize_weights(i32 group_size = 128);
+
   [[nodiscard]] const TransformerConfig& config() const noexcept { return config_; }
 
  private:

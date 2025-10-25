@@ -8,6 +8,7 @@
 #define PHOTON_OPS_MATMUL_HPP
 
 #include "operator.hpp"
+#include "photon/core/quant.hpp"
 #include "photon/core/tensor.hpp"
 #include "photon/core/types.hpp"
 
@@ -62,9 +63,12 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
    * @param input_dim Input feature dimension (N)
    * @param output_dim Output feature dimension (M)
    * @param use_naive Use naive implementation (for benchmarking)
+   * @param is_quantized Whether to use int8 quantized weights
    */
-  explicit MatMulOp(i32 input_dim, i32 output_dim, bool use_naive = false)
-      : input_dim_(input_dim), output_dim_(output_dim), use_naive_(use_naive) {
+  explicit MatMulOp(i32 input_dim, i32 output_dim, bool use_naive = false,
+                   bool is_quantized = false)
+      : input_dim_(input_dim), output_dim_(output_dim), use_naive_(use_naive),
+        is_quantized_(is_quantized) {
     weights_.resize(1);
   }
 
@@ -90,9 +94,12 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
               std::to_string(weight.dim(1)) + "]");
     }
 
-    if (weight.dtype() != DataType::Float32) {
+    DataType expected_dtype = is_quantized_ ? DataType::Int8 : DataType::Float32;
+    if (weight.dtype() != expected_dtype) {
       return Err<void>(ErrorCode::InvalidDtype,
-                      "MatMul weight must be Float32");
+                      "MatMul weight dtype mismatch: expected " +
+                      std::string(data_type_str(expected_dtype)) + ", got " +
+                      std::string(data_type_str(weight.dtype())));
     }
 
     // Auto-convert weight to operator's device if needed
@@ -109,6 +116,54 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
   }
 
   /**
+   * @brief Set quantized weight matrix with quantization parameters
+   *
+   * @param weight Quantized int8 tensor of shape [output_dim × input_dim]
+   * @param params Quantization parameters
+   * @return Result indicating success or error
+   */
+  Result<void> set_quantized_weight(Tensor weight, QuantParams params) {
+    if (!is_quantized_) {
+      return Err<void>(ErrorCode::InvalidOperator,
+                      "Operator not configured for quantization");
+    }
+
+    // Set weight using existing validation
+    auto result = set_weight(std::move(weight));
+    if (!result) {
+      return result;
+    }
+
+    // Validate and store quantization parameters
+    if (!params.is_valid()) {
+      return Err<void>(ErrorCode::InvalidArgument,
+                      "Invalid quantization parameters");
+    }
+
+    quant_params_ = std::move(params);
+
+    // Create scale tensor on CPU first
+    auto scale_tensor_cpu_result = Tensor::from_vector(
+        quant_params_.scales, DeviceType::CPU);
+    if (!scale_tensor_cpu_result) {
+      return Err<void>(scale_tensor_cpu_result.error());
+    }
+
+    // Move to device if needed
+    if (device_ == DeviceType::CPU) {
+      scale_tensor_ = std::move(scale_tensor_cpu_result.value());
+    } else {
+      auto scale_tensor_gpu_result = scale_tensor_cpu_result.value().to(device_);
+      if (!scale_tensor_gpu_result) {
+        return Err<void>(scale_tensor_gpu_result.error());
+      }
+      scale_tensor_ = std::move(scale_tensor_gpu_result.value());
+    }
+
+    return Ok();
+  }
+
+  /**
    * @brief Initialize the operator
    */
   Result<void> init_impl() {
@@ -116,6 +171,13 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
       return Err<void>(ErrorCode::InvalidOperator,
                       "MatMul weights not set");
     }
+
+    // For quantized operator, ensure scales are set
+    if (is_quantized_ && quant_params_.scales.empty()) {
+      return Err<void>(ErrorCode::InvalidOperator,
+                      "Quantized MatMul requires quantization parameters");
+    }
+
     return Ok();
   }
 
@@ -161,10 +223,38 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
    */
   [[nodiscard]] bool is_naive() const noexcept { return use_naive_; }
 
+  /**
+   * @brief Check if using quantized weights
+   */
+  [[nodiscard]] bool is_quantized() const noexcept { return is_quantized_; }
+
+  /**
+   * @brief Get quantization parameters (if quantized)
+   */
+  [[nodiscard]] const QuantParams& quant_params() const noexcept {
+    return quant_params_;
+  }
+
+  /**
+   * @brief Quantize existing FP32 weight to INT8 in-place
+   *
+   * Converts the current FP32 weight to INT8 quantized format.
+   * The operator will be switched to quantized mode after this call.
+   *
+   * @param group_size Group size for quantization (default 128)
+   * @return Result<void> Success or error
+   */
+  Result<void> quantize_weight(i32 group_size = 128);
+
  private:
   i32 input_dim_;      ///< Input feature dimension (N)
   i32 output_dim_;     ///< Output feature dimension (M)
   bool use_naive_;     ///< Use naive implementation flag
+  bool is_quantized_;  ///< Use int8 quantized weights flag
+
+  // Quantization members
+  QuantParams quant_params_;  ///< Quantization parameters (scales, group_size)
+  Tensor scale_tensor_;       ///< Scale tensor on device for kernel usage
 
   /**
    * @brief CPU forward implementation

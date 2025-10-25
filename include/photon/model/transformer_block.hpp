@@ -10,6 +10,7 @@
 #include "photon/core/tensor.hpp"
 #include "photon/core/types.hpp"
 #include "photon/core/error.hpp"
+#include "photon/core/quant.hpp"
 #include "photon/ops/matmul.hpp"
 #include "photon/ops/rmsnorm.hpp"
 #include "photon/ops/rope.hpp"
@@ -116,6 +117,14 @@ class TransformerBlock {
    * @return Result<void> Success or error
    */
   Result<void> forward(Tensor& x, i32 pos, Tensor& key_cache, Tensor& value_cache);
+
+  /**
+   * @brief Quantize all MatMul weights in this block to INT8
+   *
+   * @param group_size Group size for quantization (default 128)
+   * @return Result<void> Success or error
+   */
+  Result<void> quantize_weights(i32 group_size = 128);
 
   [[nodiscard]] constexpr i32 layer_idx() const noexcept { return layer_idx_; }
 
