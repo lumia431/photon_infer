@@ -5,12 +5,15 @@
  */
 
 #include "photon/model/llama_model.hpp"
+#include "photon/model/kv_cache_manager.hpp"
 #include <algorithm>
 #include <iostream>
 #include <cstring>
+#include <glog/logging.h>
 
 #ifdef PHOTON_USE_CUDA
 #include <cuda_runtime.h>
+#include <cublas_v2.h>
 #endif
 
 namespace photon::model {
@@ -33,6 +36,22 @@ LLaMAModel::LLaMAModel(const TransformerConfig& config)
   }
 }
 
+// Destructor must be defined in .cpp where KVCacheManager is complete
+LLaMAModel::~LLaMAModel() {
+  // Free batched GPU buffers
+#ifdef PHOTON_USE_CUDA
+  if (positions_gpu_) cudaFree(positions_gpu_);
+  if (seq_ids_gpu_) cudaFree(seq_ids_gpu_);
+  if (cache_offsets_gpu_) cudaFree(cache_offsets_gpu_);
+
+  // Destroy cuBLAS handle
+  if (cublas_handle_ != nullptr) {
+    cublasDestroy(static_cast<cublasHandle_t>(cublas_handle_));
+    cublas_handle_ = nullptr;
+  }
+#endif
+}
+
 Result<void> LLaMAModel::init() {
   if (initialized_) {
     return Ok();
@@ -40,6 +59,27 @@ Result<void> LLaMAModel::init() {
 
   // NOTE: Parameterized operators (embedding, final_norm, classifier) should have
   // their weights set before calling this. They are initialized via set_weight() calls.
+
+#ifdef PHOTON_USE_CUDA
+  // Create cuBLAS handle for FP16 Tensor Core optimization
+  if (config_.device == DeviceType::CUDA && cublas_handle_ == nullptr) {
+    cublasHandle_t handle;
+    cublasStatus_t status = cublasCreate(&handle);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+      return Err<void>(ErrorCode::CudaError,
+                      "Failed to create cuBLAS handle: " + std::to_string(status));
+    }
+    cublas_handle_ = static_cast<void*>(handle);
+
+    // Set cuBLAS handle for classifier
+    classifier_.set_cublas_handle(cublas_handle_);
+
+    // Set cuBLAS handle for all transformer blocks
+    for (auto& block : blocks_) {
+      block->set_cublas_handle(cublas_handle_);
+    }
+  }
+#endif
 
   // Initialize all transformer blocks (this allocates their intermediate buffers)
   for (auto& block : blocks_) {
@@ -304,6 +344,227 @@ Result<void> LLaMAModel::quantize_weights(i32 group_size) {
   std::cout << " done" << std::endl;
 
   std::cout << "✓ Quantization complete! Model memory reduced by ~3.8x" << std::endl;
+
+  return Ok();
+}
+
+// ============================================================================
+// Batched Inference Support
+// ============================================================================
+
+Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
+  if (batch_size <= batched_buffers_capacity_) {
+    return Ok();  // Already allocated
+  }
+
+#ifdef PHOTON_USE_CUDA
+  // Free old buffers if they exist
+  if (positions_gpu_) cudaFree(positions_gpu_);
+  if (seq_ids_gpu_) cudaFree(seq_ids_gpu_);
+  if (cache_offsets_gpu_) cudaFree(cache_offsets_gpu_);
+
+  // Allocate new GPU buffers
+  cudaError_t err;
+  err = cudaMalloc(&positions_gpu_, batch_size * sizeof(i32));
+  if (err != cudaSuccess) {
+    return Err<void>(ErrorCode::CudaError,
+                    std::string("Failed to allocate positions_gpu: ") +
+                    cudaGetErrorString(err));
+  }
+
+  err = cudaMalloc(&seq_ids_gpu_, batch_size * sizeof(i32));
+  if (err != cudaSuccess) {
+    cudaFree(positions_gpu_);
+    positions_gpu_ = nullptr;
+    return Err<void>(ErrorCode::CudaError,
+                    std::string("Failed to allocate seq_ids_gpu: ") +
+                    cudaGetErrorString(err));
+  }
+
+  err = cudaMalloc(&cache_offsets_gpu_, batch_size * sizeof(i32));
+  if (err != cudaSuccess) {
+    cudaFree(positions_gpu_);
+    cudaFree(seq_ids_gpu_);
+    positions_gpu_ = nullptr;
+    seq_ids_gpu_ = nullptr;
+    return Err<void>(ErrorCode::CudaError,
+                    std::string("Failed to allocate cache_offsets_gpu: ") +
+                    cudaGetErrorString(err));
+  }
+#endif
+
+  // Allocate Tensor buffers
+  auto tokens_result = Tensor::create({batch_size}, DataType::Int32, DeviceType::CUDA);
+  if (!tokens_result) {
+#ifdef PHOTON_USE_CUDA
+    cudaFree(positions_gpu_);
+    cudaFree(seq_ids_gpu_);
+    cudaFree(cache_offsets_gpu_);
+    positions_gpu_ = nullptr;
+    seq_ids_gpu_ = nullptr;
+    cache_offsets_gpu_ = nullptr;
+#endif
+    return Err<void>(tokens_result.error());
+  }
+  tokens_batch_ = std::move(tokens_result.value());
+
+  auto x_result = Tensor::create({batch_size, config_.dim}, DataType::Float32, DeviceType::CUDA);
+  if (!x_result) {
+#ifdef PHOTON_USE_CUDA
+    cudaFree(positions_gpu_);
+    cudaFree(seq_ids_gpu_);
+    cudaFree(cache_offsets_gpu_);
+    positions_gpu_ = nullptr;
+    seq_ids_gpu_ = nullptr;
+    cache_offsets_gpu_ = nullptr;
+#endif
+    return Err<void>(x_result.error());
+  }
+  x_batch_ = std::move(x_result.value());
+
+  auto norm_result = Tensor::create({batch_size, config_.dim}, DataType::Float32, DeviceType::CUDA);
+  if (!norm_result) {
+#ifdef PHOTON_USE_CUDA
+    cudaFree(positions_gpu_);
+    cudaFree(seq_ids_gpu_);
+    cudaFree(cache_offsets_gpu_);
+    positions_gpu_ = nullptr;
+    seq_ids_gpu_ = nullptr;
+    cache_offsets_gpu_ = nullptr;
+#endif
+    return Err<void>(norm_result.error());
+  }
+  norm_batch_ = std::move(norm_result.value());
+
+  batched_buffers_capacity_ = batch_size;
+  LOG(INFO) << "Allocated batched buffers for batch_size=" << batch_size;
+  return Ok();
+}
+
+Result<void> LLaMAModel::init_paged_cache(i32 num_blocks, i32 block_size) {
+  if (!initialized_) {
+    return Err<void>(ErrorCode::InvalidOperator,
+                    "Model must be initialized before creating paged cache");
+  }
+
+  if (config_.device != DeviceType::CUDA) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "Paged cache currently only supported on CUDA");
+  }
+
+  cache_manager_ = std::make_unique<KVCacheManager>(
+      num_blocks, block_size, config_.n_layers, config_.kv_dim, config_.device);
+
+  auto init_result = cache_manager_->init();
+  if (!init_result) {
+    return Err<void>(init_result.error());
+  }
+
+  use_paged_cache_ = true;
+  LOG(INFO) << "Paged KV cache initialized successfully";
+  return Ok();
+}
+
+Result<void> LLaMAModel::forward_batched(
+    const std::vector<i32>& tokens,
+    const std::vector<i32>& positions,
+    const std::vector<i32>& seq_ids,
+    Tensor& logits) {
+
+  if (!initialized_) {
+    return Err<void>(ErrorCode::InvalidOperator, "Model not initialized");
+  }
+
+  if (!use_paged_cache_ || !cache_manager_) {
+    return Err<void>(ErrorCode::InvalidOperator,
+                    "Paged cache not initialized. Call init_paged_cache() first");
+  }
+
+  if (config_.device != DeviceType::CUDA) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "Batched forward currently only supported on CUDA");
+  }
+
+  const i32 batch_size = static_cast<i32>(tokens.size());
+  if (batch_size == 0) {
+    return Err<void>(ErrorCode::InvalidArgument, "Empty batch");
+  }
+
+  if (positions.size() != static_cast<usize>(batch_size) ||
+      seq_ids.size() != static_cast<usize>(batch_size)) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "tokens, positions, and seq_ids must have same size");
+  }
+
+  if (logits.ndim() != 2 ||
+      logits.dims()[0] != batch_size ||
+      logits.dims()[1] != config_.vocab_size) {
+    return Err<void>(ErrorCode::InvalidShape,
+                    "logits must have shape [batch_size, vocab_size]");
+  }
+
+  if (logits.device() != DeviceType::CUDA) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "logits tensor must be on CUDA for batched forward");
+  }
+
+  // ========================================================================
+  // TRUE BATCHED PROCESSING - Key optimization for 250+ tokens/s!
+  // ========================================================================
+
+  // Ensure pre-allocated buffers are ready
+  auto buffer_result = ensure_batched_buffers(batch_size);
+  if (!buffer_result) return buffer_result;
+
+  // Copy tokens to GPU (reusing pre-allocated buffer)
+  cudaMemcpy(tokens_batch_.data(), tokens.data(),
+             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+
+  // Copy positions to GPU (reusing pre-allocated buffer)
+  cudaMemcpy(positions_gpu_, positions.data(),
+             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+
+  // Copy seq_ids to GPU (reusing pre-allocated buffer)
+  cudaMemcpy(seq_ids_gpu_, seq_ids.data(),
+             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+
+  // Prepare cache_offsets once for all layers (optimization!)
+  std::vector<i32> cache_offsets_cpu(batch_size);
+  for (i32 i = 0; i32 seq_id : seq_ids) {
+    auto offset_result = cache_manager_->get_sequence_offset(seq_id);
+    if (!offset_result) {
+      return Err<void>(offset_result.error());
+    }
+    cache_offsets_cpu[i++] = offset_result.value();
+  }
+  cudaMemcpy(cache_offsets_gpu_, cache_offsets_cpu.data(),
+             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+
+  // 1. Batched Embedding Lookup (writes directly to x_batch_)
+  auto emb_result = embedding_.forward(tokens_batch_, x_batch_);
+  if (!emb_result) return emb_result;
+
+  // 2. Forward through all transformer blocks (BATCHED!)
+  for (i32 layer_idx = 0; layer_idx < config_.n_layers; ++layer_idx) {
+    Tensor& key_cache = cache_manager_->get_key_cache(layer_idx);
+    Tensor& value_cache = cache_manager_->get_value_cache(layer_idx);
+
+    // Call BATCHED forward with proper cache management
+    // Pass both GPU pointers (for kernel use) and CPU vectors (for cache management)
+    auto block_result = blocks_[layer_idx]->forward_batched(
+        x_batch_, positions_gpu_, positions, seq_ids, cache_offsets_gpu_, batch_size,
+        key_cache, value_cache, cache_manager_.get());
+
+    if (!block_result) return block_result;
+  }
+
+  // 3. Batched Final RMSNorm (using pre-allocated norm_batch_)
+  auto norm_result = final_norm_.forward(x_batch_, norm_batch_);
+  if (!norm_result) return norm_result;
+
+  // 4. Batched Classifier projection
+  auto cls_result = classifier_.forward(norm_batch_, logits);
+  if (!cls_result) return cls_result;
 
   return Ok();
 }

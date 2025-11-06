@@ -43,6 +43,30 @@ Result<void> rmsnorm_cuda_launch(
     f32 eps = 1e-5f,
     cudaStream_t stream = nullptr);
 
+/**
+ * @brief Launch batched CUDA RMS normalization kernel
+ *
+ * Processes multiple sequences in parallel.
+ * Grid: batch_size blocks, Block: 128 threads per block
+ *
+ * @param input Input tensor [batch_size × dim]
+ * @param weight Weight tensor [dim] (shared across batch)
+ * @param output Output tensor [batch_size × dim]
+ * @param batch_size Number of sequences
+ * @param dim Dimension size
+ * @param eps Epsilon for numerical stability
+ * @param stream CUDA stream (optional)
+ * @return Result indicating success or error
+ */
+Result<void> rmsnorm_batched_cuda_launch(
+    std::span<const f32> input,
+    std::span<const f32> weight,
+    std::span<f32> output,
+    i32 batch_size,
+    i32 dim,
+    f32 eps = 1e-5f,
+    cudaStream_t stream = nullptr);
+
 }  // namespace photon::kernels::cuda
 
 #endif  // PHOTON_OPS_KERNELS_CUDA_RMSNORM_KERNEL_CUH

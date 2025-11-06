@@ -121,15 +121,17 @@ Result<void> RoPEOp::forward(Tensor& q, Tensor& k, i32 pos) {
     return Err<void>(ErrorCode::InvalidDtype, "Query must be Float32");
   }
 
-  if (q.ndim() != 1) {
-    return Err<void>(ErrorCode::InvalidShape, "Query must be 1D tensor");
+  // Support both 1D [dim] and 2D [batch, dim]
+  if (q.ndim() != 1 && q.ndim() != 2) {
+    return Err<void>(ErrorCode::InvalidShape, "Query must be 1D or 2D tensor");
   }
 
-  if (q.dim(0) != dim_) {
+  i32 q_last_dim = (q.ndim() == 1) ? q.dim(0) : q.dim(1);
+  if (q_last_dim != dim_) {
     return Err<void>(
         ErrorCode::ShapeMismatch,
         "Query dimension mismatch: expected " + std::to_string(dim_) +
-            ", got " + std::to_string(q.dim(0)));
+            ", got " + std::to_string(q_last_dim));
   }
 
   // Validate key tensor
@@ -141,15 +143,27 @@ Result<void> RoPEOp::forward(Tensor& q, Tensor& k, i32 pos) {
     return Err<void>(ErrorCode::InvalidDtype, "Key must be Float32");
   }
 
-  if (k.ndim() != 1) {
-    return Err<void>(ErrorCode::InvalidShape, "Key must be 1D tensor");
+  // Support both 1D [kv_dim] and 2D [batch, kv_dim]
+  if (k.ndim() != 1 && k.ndim() != 2) {
+    return Err<void>(ErrorCode::InvalidShape, "Key must be 1D or 2D tensor");
   }
 
-  if (k.dim(0) != kv_dim_) {
+  i32 k_last_dim = (k.ndim() == 1) ? k.dim(0) : k.dim(1);
+  if (k_last_dim != kv_dim_) {
     return Err<void>(
         ErrorCode::ShapeMismatch,
         "Key dimension mismatch: expected " + std::to_string(kv_dim_) +
-            ", got " + std::to_string(k.dim(0)));
+            ", got " + std::to_string(k_last_dim));
+  }
+
+  // Ensure q and k have matching batch dimensions
+  if (q.ndim() != k.ndim()) {
+    return Err<void>(ErrorCode::ShapeMismatch,
+                    "Query and Key must have same number of dimensions");
+  }
+  if (q.ndim() == 2 && q.dim(0) != k.dim(0)) {
+    return Err<void>(ErrorCode::ShapeMismatch,
+                    "Query and Key batch size mismatch");
   }
 
   // Dispatch to device-specific implementation
@@ -170,39 +184,82 @@ Result<void> RoPEOp::forward(Tensor& q, Tensor& k, i32 pos) {
 }
 
 Result<void> RoPEOp::forward_cpu(Tensor& q, Tensor& k, i32 pos) {
-  // Create spans for kernels
-  std::span<f32> q_data(q.ptr<f32>(), q.size());
-  std::span<f32> k_data(k.ptr<f32>(), k.size());
   std::span<const f32> sin_data(sin_cache_.data(), sin_cache_.size());
   std::span<const f32> cos_data(cos_cache_.data(), cos_cache_.size());
 
-  // Dispatch based on implementation type
-  if (use_naive_) {
-    kernels::rope_naive<f32>(
-        q_data, k_data, sin_data, cos_data,
-        pos, dim_, kv_dim_, head_size_);
-    return Ok();
+  if (q.ndim() == 1) {
+    // Single sequence
+    std::span<f32> q_data(q.ptr<f32>(), q.size());
+    std::span<f32> k_data(k.ptr<f32>(), k.size());
+
+    if (use_naive_) {
+      kernels::rope_naive<f32>(
+          q_data, k_data, sin_data, cos_data,
+          pos, dim_, kv_dim_, head_size_);
+      return Ok();
+    } else {
+      return kernels::rope_eigen<f32>(
+          q_data, k_data, sin_data, cos_data,
+          pos, dim_, kv_dim_, head_size_);
+    }
   } else {
-    return kernels::rope_eigen<f32>(
-        q_data, k_data, sin_data, cos_data,
-        pos, dim_, kv_dim_, head_size_);
+    // Batched: process each sequence
+    i32 batch_size = q.dim(0);
+    for (i32 b = 0; b < batch_size; ++b) {
+      f32* q_row = q.ptr<f32>() + b * dim_;
+      f32* k_row = k.ptr<f32>() + b * kv_dim_;
+
+      std::span<f32> q_data(q_row, dim_);
+      std::span<f32> k_data(k_row, kv_dim_);
+
+      Result<void> result;
+      if (use_naive_) {
+        kernels::rope_naive<f32>(
+            q_data, k_data, sin_data, cos_data,
+            pos, dim_, kv_dim_, head_size_);
+        result = Ok();
+      } else {
+        result = kernels::rope_eigen<f32>(
+            q_data, k_data, sin_data, cos_data,
+            pos, dim_, kv_dim_, head_size_);
+      }
+      if (!result) return result;
+    }
+    return Ok();
   }
 }
 
 #ifdef PHOTON_USE_CUDA
 Result<void> RoPEOp::forward_cuda(Tensor& q, Tensor& k, i32 pos) {
-  // Create spans for CUDA kernel (following KuiperInfer)
-  std::span<f32> q_data(q.ptr<f32>(), q.size());
-  std::span<f32> k_data(k.ptr<f32>(), k.size());
-
   usize cache_size = static_cast<usize>(max_seq_len_) * static_cast<usize>(head_size_);
   std::span<const f32> sin_data(cuda_sin_cache_, cache_size);
   std::span<const f32> cos_data(cuda_cos_cache_, cache_size);
 
-  // Launch CUDA kernel
-  return kernels::cuda::rope_cuda_launch(
-      q_data, k_data, sin_data, cos_data,
-      pos, dim_, kv_dim_, head_size_, nullptr);
+  if (q.ndim() == 1) {
+    // Single sequence
+    std::span<f32> q_data(q.ptr<f32>(), q.size());
+    std::span<f32> k_data(k.ptr<f32>(), k.size());
+
+    return kernels::cuda::rope_cuda_launch(
+        q_data, k_data, sin_data, cos_data,
+        pos, dim_, kv_dim_, head_size_, nullptr);
+  } else {
+    // Batched: process each sequence
+    i32 batch_size = q.dim(0);
+    for (i32 b = 0; b < batch_size; ++b) {
+      f32* q_row = q.ptr<f32>() + b * dim_;
+      f32* k_row = k.ptr<f32>() + b * kv_dim_;
+
+      std::span<f32> q_data(q_row, dim_);
+      std::span<f32> k_data(k_row, kv_dim_);
+
+      auto result = kernels::cuda::rope_cuda_launch(
+          q_data, k_data, sin_data, cos_data,
+          pos, dim_, kv_dim_, head_size_, nullptr);
+      if (!result) return result;
+    }
+    return Ok();
+  }
 }
 #endif
 

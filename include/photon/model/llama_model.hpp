@@ -62,6 +62,11 @@ class LLaMAModel {
   explicit LLaMAModel(const TransformerConfig& config);
 
   /**
+   * @brief Destructor (needed for unique_ptr with forward-declared type)
+   */
+  ~LLaMAModel();
+
+  /**
    * @brief Initialize model (allocate buffers, init operators)
    */
   Result<void> init();
@@ -141,6 +146,38 @@ class LLaMAModel {
    */
   Result<void> quantize_weights(i32 group_size = 128);
 
+  /**
+   * @brief Initialize paged KV cache for batched inference
+   *
+   * This replaces the default contiguous KV cache with a managed cache
+   * that supports multiple concurrent sequences.
+   *
+   * @param num_blocks Number of cache blocks (or max_sequences for v1)
+   * @param block_size Block size in tokens (or max_seq_len for v1)
+   * @return Result<void> Success or error
+   */
+  Result<void> init_paged_cache(i32 num_blocks, i32 block_size);
+
+  /**
+   * @brief Batched forward pass (multiple sequences in parallel)
+   *
+   * @param tokens Token IDs for each sequence [batch_size]
+   * @param positions Position for each sequence [batch_size]
+   * @param seq_ids Sequence IDs [batch_size]
+   * @param logits Output logits [batch_size, vocab_size] (must be on GPU)
+   * @return Result<void> Success or error
+   */
+  Result<void> forward_batched(
+      const std::vector<i32>& tokens,
+      const std::vector<i32>& positions,
+      const std::vector<i32>& seq_ids,
+      Tensor& logits);
+
+  /**
+   * @brief Get cache manager (for allocation/deallocation)
+   */
+  class KVCacheManager* cache_manager() { return cache_manager_.get(); }
+
   [[nodiscard]] const TransformerConfig& config() const noexcept { return config_; }
 
  private:
@@ -153,8 +190,11 @@ class LLaMAModel {
   MatMulOp classifier_;
 
   // KV cache: [n_layers][seq_len × kv_dim]
-  std::vector<Tensor> key_cache_;    // One per layer
-  std::vector<Tensor> value_cache_;  // One per layer
+  std::vector<Tensor> key_cache_;    // One per layer (for single-sequence mode)
+  std::vector<Tensor> value_cache_;  // One per layer (for single-sequence mode)
+
+  // Batched KV cache manager (optional, for multi-sequence mode)
+  std::unique_ptr<class KVCacheManager> cache_manager_;
 
   // Working buffers
   Tensor x_;           // Current hidden state [dim]
@@ -162,7 +202,26 @@ class LLaMAModel {
   Tensor norm_out_;    // Final norm output [dim]
   Tensor logits_buf_;  // Logits buffer [vocab_size]
 
+  // Pre-allocated GPU buffers for batched inference (reused across calls)
+  i32 batched_buffers_capacity_ = 0;  // Allocated batch size
+  i32* positions_gpu_ = nullptr;      // [batch_size] - reusable
+  i32* seq_ids_gpu_ = nullptr;        // [batch_size] - reusable
+  i32* cache_offsets_gpu_ = nullptr;  // [batch_size] - reusable
+  Tensor tokens_batch_;                // [batch_size] - reusable
+  Tensor x_batch_;                     // [batch_size, dim] - reusable
+  Tensor norm_batch_;                  // [batch_size, dim] - reusable
+
   bool initialized_ = false;
+  bool use_paged_cache_ = false;  // Whether to use batched cache manager
+
+#ifdef PHOTON_USE_CUDA
+  void* cublas_handle_ = nullptr;  // cuBLAS handle for FP16 Tensor Core optimization
+#endif
+
+  /**
+   * @brief Ensure batched buffers are allocated for given batch size
+   */
+  Result<void> ensure_batched_buffers(i32 batch_size);
 };
 
 /**

@@ -42,6 +42,27 @@ Result<void> swiglu_cuda_launch(
     i32 size,
     cudaStream_t stream = nullptr);
 
+/**
+ * @brief Launch batched CUDA SwiGLU activation kernel
+ *
+ * Processes multiple sequences in parallel with a single kernel launch.
+ *
+ * @param input1 First input tensor [batch_size × hidden_dim] (gate values)
+ * @param input2 Second input tensor [batch_size × hidden_dim] (values to modulate)
+ * @param output Output tensor [batch_size × hidden_dim]
+ * @param batch_size Number of sequences in batch
+ * @param hidden_dim Hidden dimension size
+ * @param stream CUDA stream (optional)
+ * @return Result indicating success or error
+ */
+Result<void> swiglu_batched_cuda_launch(
+    const f32* input1,
+    const f32* input2,
+    f32* output,
+    i32 batch_size,
+    i32 hidden_dim,
+    cudaStream_t stream = nullptr);
+
 }  // namespace photon::kernels::cuda
 
 #endif  // PHOTON_OPS_KERNELS_CUDA_SWIGLU_KERNEL_CUH

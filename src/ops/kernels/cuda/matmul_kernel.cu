@@ -8,6 +8,7 @@
  */
 
 #include "photon/ops/kernels/cuda/matmul_kernel.cuh"
+#include "photon/ops/kernels/cuda/matmul_kernel_quant.cuh"
 #include <cub/block/block_reduce.cuh>
 #include <glog/logging.h>
 
@@ -139,6 +140,128 @@ Result<void> matmul_gemv_cuda_launch(
     return Err<void>(ErrorCode::CudaError,
                     std::string("CUDA matmul kernel launch failed: ") +
                         cudaGetErrorString(err));
+  }
+
+  return Ok();
+}
+
+// ============================================================================
+// cuBLAS Batched GEMM
+// ============================================================================
+
+#include <cublas_v2.h>
+
+// Global cuBLAS handle (initialized on first use)
+static cublasHandle_t g_cublas_handle = nullptr;
+static bool g_cublas_initialized = false;
+
+static Result<cublasHandle_t> get_cublas_handle() {
+  if (!g_cublas_initialized) {
+    cublasStatus_t status = cublasCreate(&g_cublas_handle);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+      return Err<cublasHandle_t>(ErrorCode::CudaError,
+                                 "Failed to create cuBLAS handle");
+    }
+    g_cublas_initialized = true;
+  }
+  return Ok(g_cublas_handle);
+}
+
+Result<void> matmul_gemm_cublas_launch(
+    const f32* input,
+    const f32* weight,
+    f32* output,
+    i32 batch_size,
+    i32 M,
+    i32 N,
+    cudaStream_t stream) {
+
+  // Get cuBLAS handle
+  auto handle_result = get_cublas_handle();
+  if (!handle_result) return Err<void>(handle_result.error());
+  cublasHandle_t handle = handle_result.value();
+
+  // Set stream if provided
+  if (stream) {
+    cublasSetStream(handle, stream);
+  }
+
+  const f32 alpha = 1.0f;
+  const f32 beta = 0.0f;
+
+  // We want (in row-major): output[batch, M] = input[batch, N] @ weight[M, N]^T
+  //
+  // Our tensors are row-major:
+  // - input: [batch × N] stored as row-major
+  // - weight: [M × N] stored as row-major
+  // - output: [batch × M] stored as row-major
+  //
+  // cuBLAS expects column-major, so we transpose everything:
+  // output^T[M × batch] = (weight[M × N]^T)^T @ input^T[N × batch]
+  //                     = weight[N × M] @ input^T[N × batch]  (with transpose flags)
+  //
+  // In cuBLAS notation (column-major):
+  // C[M × batch] = op(A)[M × N] @ op(B)[N × batch]
+  // where op(A) = A^T, op(B) = B^T
+  //
+  // Since our row-major A is cuBLAS's column-major A^T:
+  // C = weight^T @ input^T (with appropriate transpose flags)
+
+  cublasStatus_t status = cublasSgemm(
+      handle,
+      CUBLAS_OP_T,  // Transpose weight: [M×N]^T = [N×M] in col-major
+      CUBLAS_OP_T,  // Transpose input: [batch×N]^T = [N×batch] in col-major
+      M,            // m: rows of output (col-major) = cols of output (row-major)
+      batch_size,   // n: cols of output (col-major) = rows of output (row-major)
+      N,            // k: inner dimension
+      &alpha,
+      weight,       // A: row-major [M×N] = col-major [N×M]
+      N,            // lda: leading dim of A (row-major stride)
+      input,        // B: row-major [batch×N] = col-major [N×batch]
+      N,            // ldb: leading dim of B (row-major stride)
+      &beta,
+      output,       // C: row-major [batch×M] = col-major [M×batch]
+      M);           // ldc: leading dim of C (row-major stride)
+
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    LOG(ERROR) << "cuBLAS GEMM failed with status: " << status;
+    return Err<void>(ErrorCode::CudaError,
+                    "cuBLAS GEMM failed");
+  }
+
+  return Ok();
+}
+
+Result<void> matmul_gemm_quant_launch(
+    const f32* input,
+    usize input_size,
+    const i8* weight_quant,
+    usize weight_size,
+    const f32* scales,
+    usize scales_size,
+    i32 group_size,
+    f32* output,
+    usize output_size,
+    i32 batch_size,
+    i32 M,
+    i32 N,
+    cudaStream_t stream) {
+
+  // Temporarily use loop for debugging
+  for (i32 b = 0; b < batch_size; ++b) {
+    const f32* input_row = input + b * N;
+    f32* output_row = output + b * M;
+
+    auto result = matmul_gemv_quant_launch(
+        input_row, N,
+        weight_quant, weight_size,
+        scales, scales_size,
+        group_size,
+        output_row, M,
+        N, M,
+        stream);
+
+    if (!result) return result;
   }
 
   return Ok();

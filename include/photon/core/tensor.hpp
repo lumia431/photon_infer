@@ -127,6 +127,27 @@ class Tensor {
    */
   [[nodiscard]] Result<Tensor> to(DeviceType target_device) const;
 
+  /**
+   * @brief Create a view (slice) of this tensor with shared memory
+   *
+   * Creates a new tensor that shares the underlying buffer but with different
+   * dimensions. This is a zero-copy operation - the slice points to the same
+   * memory as the original tensor.
+   *
+   * **IMPORTANT**: The original tensor must outlive the slice!
+   *
+   * @param offset_rows Offset in the first dimension (for 2D tensors)
+   * @param num_rows Number of rows in the slice
+   * @return Result containing the sliced tensor view
+   *
+   * Example:
+   * ```cpp
+   * // Original: [1024, 512]
+   * auto slice = tensor.slice(256, 256);  // Get rows [256:512], shape [256, 512]
+   * ```
+   */
+  [[nodiscard]] Result<Tensor> slice(i32 offset_rows, i32 num_rows) const;
+
   // ========== Getters ==========
 
   /**
@@ -186,21 +207,25 @@ class Tensor {
   // ========== Raw Pointer Access ==========
 
   /**
-   * @brief Get raw data pointer
+   * @brief Get raw data pointer (supports sliced views)
    */
-  [[nodiscard]] void* data() noexcept { return buffer_.data(); }
+  [[nodiscard]] void* data() noexcept {
+    return data_ptr_ ? data_ptr_ : buffer_.data();
+  }
 
   /**
-   * @brief Get const raw data pointer
+   * @brief Get const raw data pointer (supports sliced views)
    */
-  [[nodiscard]] const void* data() const noexcept { return buffer_.data(); }
+  [[nodiscard]] const void* data() const noexcept {
+    return data_ptr_ ? data_ptr_ : buffer_.data();
+  }
 
   /**
    * @brief Get typed data pointer
    */
   template <typename T>
   [[nodiscard]] T* ptr() noexcept {
-    return buffer_.data_as<T>();
+    return reinterpret_cast<T*>(data());
   }
 
   /**
@@ -208,7 +233,7 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] const T* ptr() const noexcept {
-    return buffer_.data_as<T>();
+    return reinterpret_cast<const T*>(data());
   }
 
   /**
@@ -216,7 +241,7 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] T* ptr(int64_t offset) noexcept {
-    return buffer_.data_as<T>() + offset;
+    return reinterpret_cast<T*>(data()) + offset;
   }
 
   /**
@@ -224,7 +249,7 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] const T* ptr(int64_t offset) const noexcept {
-    return buffer_.data_as<T>() + offset;
+    return reinterpret_cast<const T*>(data()) + offset;
   }
 
   /**
@@ -232,7 +257,7 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] T& index(int64_t offset) {
-    return buffer_.data_as<T>()[offset];
+    return reinterpret_cast<T*>(data())[offset];
   }
 
   /**
@@ -240,7 +265,7 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] const T& index(int64_t offset) const {
-    return buffer_.data_as<T>()[offset];
+    return reinterpret_cast<const T*>(data())[offset];
   }
 
   // ========== Eigen Integration (Zero-Copy Views) ==========
@@ -353,12 +378,21 @@ class Tensor {
   usize size_ = 0;               ///< Total number of elements
   DataType dtype_ = DataType::Float32;   ///< Element data type
   DeviceType device_ = DeviceType::CPU;  ///< Device where data resides
+  void* data_ptr_ = nullptr;     ///< Pointer offset for sliced views
 
   /**
    * @brief Private constructor from buffer
    */
   Tensor(Buffer&& buffer, std::vector<int32_t> dims, DataType dtype,
          DeviceType device);
+
+  /**
+   * @brief Private constructor for creating a view (slice)
+   * @param parent Parent tensor to create view from
+   * @param dims New dimensions for the view
+   * @param data_offset Byte offset into parent's buffer
+   */
+  Tensor(const Tensor& parent, std::vector<int32_t> dims, usize data_offset);
 
   /**
    * @brief Compute total size from dimensions

@@ -230,4 +230,55 @@ Result<Tensor> Tensor::to(DeviceType target_device) const {
 #endif
 }
 
+// ============================================================================
+// Tensor Slicing (Zero-Copy Views)
+// ============================================================================
+
+Tensor::Tensor(const Tensor& parent, std::vector<int32_t> dims, usize data_offset)
+    : buffer_(),  // Empty buffer - we don't own the memory!
+      dims_(std::move(dims)),
+      size_(compute_size(dims_)),
+      dtype_(parent.dtype_),
+      device_(parent.device_) {
+  // Calculate the actual data pointer
+  // If parent is already a slice, use its data_ptr_, otherwise use buffer data
+  void* base_ptr = parent.data_ptr_ ? parent.data_ptr_ : const_cast<void*>(parent.buffer_.data());
+  data_ptr_ = static_cast<char*>(base_ptr) + data_offset;
+
+  // Note: This creates a non-owning view. The parent tensor must outlive this slice!
+}
+
+Result<Tensor> Tensor::slice(i32 offset_rows, i32 num_rows) const {
+  if (ndim() != 2) {
+    return Err<Tensor>(ErrorCode::InvalidShape,
+                      "slice() currently only supports 2D tensors");
+  }
+
+  i32 total_rows = dims_[0];
+  i32 cols = dims_[1];
+
+  if (offset_rows < 0 || offset_rows >= total_rows) {
+    return Err<Tensor>(ErrorCode::InvalidArgument,
+                      "offset_rows out of bounds: " + std::to_string(offset_rows));
+  }
+
+  if (num_rows <= 0 || offset_rows + num_rows > total_rows) {
+    return Err<Tensor>(ErrorCode::InvalidArgument,
+                      "Invalid num_rows: " + std::to_string(num_rows));
+  }
+
+  // Calculate byte offset
+  usize element_size = data_type_size(dtype_);
+  usize row_bytes = cols * element_size;
+  usize byte_offset = offset_rows * row_bytes;
+
+  // Create new dimensions for the slice
+  std::vector<i32> slice_dims = {num_rows, cols};
+
+  // Create the sliced tensor (shares memory!)
+  Tensor sliced(*this, std::move(slice_dims), byte_offset);
+
+  return Ok(std::move(sliced));
+}
+
 }  // namespace photon

@@ -4,6 +4,7 @@
 
 #ifdef PHOTON_USE_CUDA
 #include "photon/ops/kernels/cuda/mha_kernel.cuh"
+#include "photon/ops/kernels/cuda/batched_mha_kernel.cuh"
 #endif
 
 namespace photon {
@@ -43,18 +44,15 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
                 ", got " + std::to_string(query.size()));
   }
 
-  if (static_cast<i32>(key_cache.size()) != seq_len_ * kv_dim_) {
+  // Relaxed check for batched inference: cache can be smaller than seq_len_
+  if (static_cast<i32>(key_cache.size()) % kv_dim_ != 0) {
     return Err<void>(ErrorCode::ShapeMismatch,
-                "Key cache tensor size mismatch: expected " +
-                std::to_string(seq_len_ * kv_dim_) +
-                ", got " + std::to_string(key_cache.size()));
+                "Key cache size must be multiple of kv_dim");
   }
 
-  if (static_cast<i32>(value_cache.size()) != seq_len_ * kv_dim_) {
+  if (static_cast<i32>(value_cache.size()) % kv_dim_ != 0) {
     return Err<void>(ErrorCode::ShapeMismatch,
-                "Value cache tensor size mismatch: expected " +
-                std::to_string(seq_len_ * kv_dim_) +
-                ", got " + std::to_string(value_cache.size()));
+                "Value cache size must be multiple of kv_dim");
   }
 
   if (static_cast<i32>(output.size()) != dim_) {
@@ -160,7 +158,11 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
       std::span<f32> output_span(output.ptr<f32>(), output.size());
       std::span<f32> score_span(score.ptr<f32>(), score.size());
 
-      // layer_index=0 since we pass single-layer cache
+      // TODO: Partitioned attention for single-sequence currently disabled
+      // due to memory allocation overhead. Will be enabled after optimizing
+      // to use persistent buffers.
+
+      // Use original kernel
       return kernels::cuda::mha_cuda_launch(
           pos, head_num_, 0, seq_len_, kv_dim_, kv_mul_, head_size_,
           output_span, query_span, score_span, key_span, value_span, nullptr);

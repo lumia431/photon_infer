@@ -246,6 +246,25 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
    */
   Result<void> quantize_weight(i32 group_size = 128);
 
+#ifdef PHOTON_USE_CUDA
+  /**
+   * @brief Set cuBLAS handle for FP16 Tensor Core optimization
+   *
+   * @param handle cuBLAS handle (must remain valid during operator lifetime)
+   */
+  void set_cublas_handle(void* handle) { cublas_handle_ = handle; }
+
+  /**
+   * @brief Destructor - cleanup weight cache
+   */
+  ~MatMulOp() {
+    if (weight_fp32_cache_ != nullptr) {
+      cudaFree(weight_fp32_cache_);
+      weight_fp32_cache_ = nullptr;
+    }
+  }
+#endif
+
  private:
   i32 input_dim_;      ///< Input feature dimension (N)
   i32 output_dim_;     ///< Output feature dimension (M)
@@ -255,6 +274,12 @@ class MatMulOp : public ParameterizedOperator<MatMulOp> {
   // Quantization members
   QuantParams quant_params_;  ///< Quantization parameters (scales, group_size)
   Tensor scale_tensor_;       ///< Scale tensor on device for kernel usage
+
+#ifdef PHOTON_USE_CUDA
+  // Dequantized weight cache for cuBLAS optimization
+  void* weight_fp32_cache_ = nullptr;  ///< Cached FP32 dequantized weights
+  void* cublas_handle_ = nullptr;      ///< cuBLAS handle (owned by model)
+#endif
 
   /**
    * @brief CPU forward implementation

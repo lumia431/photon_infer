@@ -10,6 +10,9 @@
 #ifdef PHOTON_USE_CUDA
 #include "photon/ops/kernels/cuda/matmul_kernel.cuh"
 #include "photon/ops/kernels/cuda/matmul_kernel_quant.cuh"
+#include "photon/ops/kernels/cuda/matmul_kernel_quant_v2.cuh"
+#include "photon/ops/kernels/cuda/matmul_dequant_cached.cuh"
+#include <cublas_v2.h>
 #endif
 
 namespace photon {
@@ -147,43 +150,83 @@ Result<void> MatMulOp::forward_cpu(const Tensor& input, Tensor& output) {
 
 #ifdef PHOTON_USE_CUDA
 Result<void> MatMulOp::forward_cuda(const Tensor& input, Tensor& output) {
-  // Only support GEMV for now (following KuiperInfer)
-  // GEMV: [N] @ [M×N]^T -> [M]
-  if (input.ndim() != 1) {
-    return Err<void>(ErrorCode::NotImplemented,
-                    "CUDA matmul only supports 1D input (GEMV) for now");
-  }
+  // Dispatch based on input shape
+  if (input.ndim() == 1) {
+    // GEMV: [N] @ [M×N]^T -> [M]
+    i32 M = input_dim_;   // Input dimension
+    i32 K = output_dim_;  // Output dimension (number of rows in weight)
 
-  // Kernel parameters
-  i32 M = input_dim_;   // Input dimension
-  i32 K = output_dim_;  // Output dimension (number of rows in weight)
+    // Create input/output spans
+    std::span<const f32> input_data(input.ptr<f32>(), input.size());
+    std::span<f32> output_data(output.ptr<f32>(), output.size());
 
-  // Create input/output spans
-  std::span<const f32> input_data(input.ptr<f32>(), input.size());
-  std::span<f32> output_data(output.ptr<f32>(), output.size());
+    // Dispatch based on quantization
+    if (is_quantized_) {
+      // Quantized path: int8 weights with dynamic dequantization
+      const Tensor& weight = weights_[0];
 
-  // Dispatch based on quantization
-  if (is_quantized_) {
-    // Quantized path: int8 weights with dynamic dequantization
-    const Tensor& weight = weights_[0];
+      return kernels::cuda::matmul_gemv_quant_launch(
+          input.ptr<f32>(), input.size(),
+          weight.ptr<i8>(), weight.size(),
+          scale_tensor_.ptr<f32>(), scale_tensor_.size(),
+          quant_params_.group_size,
+          output.ptr<f32>(), output.size(),
+          M, K,
+          nullptr);  // stream = nullptr for now
+    } else {
+      // Float32 path (original implementation)
+      const Tensor& weight = weights_[0];
+      std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
 
-    return kernels::cuda::matmul_gemv_quant_launch(
-        input.ptr<f32>(), input.size(),
-        weight.ptr<i8>(), weight.size(),
-        scale_tensor_.ptr<f32>(), scale_tensor_.size(),
-        quant_params_.group_size,
-        output.ptr<f32>(), output.size(),
-        M, K,
-        nullptr);  // stream = nullptr for now
+      return kernels::cuda::matmul_gemv_cuda_launch(
+          input_data, weight_data, output_data,
+          M, K,
+          nullptr);  // stream = nullptr for now
+    }
   } else {
-    // Float32 path (original implementation)
-    const Tensor& weight = weights_[0];
-    std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
+    // GEMM: [B×N] @ [M×N]^T -> [B×M]
+    // Use cuBLAS for optimal batched matrix multiplication
+    i32 batch_size = input.dim(0);
+    i32 M = input_dim_;   // Input dimension
+    i32 K = output_dim_;  // Output dimension
 
-    return kernels::cuda::matmul_gemv_cuda_launch(
-        input_data, weight_data, output_data,
-        M, K,
-        nullptr);  // stream = nullptr for now
+    if (is_quantized_) {
+      // Quantized path: use cached dequantization + cuBLAS FP32 GEMM
+      const Tensor& weight = weights_[0];
+
+      // Use dequant-cached kernel if cuBLAS handle is available
+      if (cublas_handle_ != nullptr) {
+        return kernels::cuda::matmul_gemm_dequant_cached_launch(
+            static_cast<cublasHandle_t>(cublas_handle_),
+            input.ptr<f32>(), input.size(),
+            weight.ptr<i8>(), weight.size(),
+            scale_tensor_.ptr<f32>(), scale_tensor_.size(),
+            quant_params_.group_size,
+            output.ptr<f32>(), output.size(),
+            batch_size, K, M,
+            reinterpret_cast<f32**>(&weight_fp32_cache_),
+            nullptr);
+      } else {
+        // Fallback to custom INT8 kernel v2
+        return kernels::cuda::matmul_gemm_quant_v2_launch(
+            input.ptr<f32>(), input.size(),
+            weight.ptr<i8>(), weight.size(),
+            scale_tensor_.ptr<f32>(), scale_tensor_.size(),
+            quant_params_.group_size,
+            output.ptr<f32>(), output.size(),
+            batch_size, K, M,
+            nullptr);
+      }
+    } else {
+      // Float32 path: use cuBLAS GEMM
+      const Tensor& weight = weights_[0];
+      return kernels::cuda::matmul_gemm_cublas_launch(
+          input.ptr<f32>(),
+          weight.ptr<f32>(),
+          output.ptr<f32>(),
+          batch_size, K, M,  // K and M swapped for cuBLAS
+          nullptr);
+    }
   }
 }
 #endif

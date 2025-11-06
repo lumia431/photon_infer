@@ -149,4 +149,78 @@ Result<void> rmsnorm_cuda_launch(
   return Ok();
 }
 
+/**
+ * @brief Batched RMS normalization (CUDA)
+ *
+ * Processes multiple sequences in parallel.
+ * Grid: batch_size blocks, Block: 128 threads
+ * Each block processes one row independently.
+ */
+Result<void> rmsnorm_batched_cuda_launch(
+    std::span<const f32> input,
+    std::span<const f32> weight,
+    std::span<f32> output,
+    i32 batch_size,
+    i32 dim,
+    f32 eps,
+    cudaStream_t stream) {
+
+  // Validate dimensions
+  if (static_cast<i32>(input.size()) != batch_size * dim) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "Input size mismatch in batched rmsnorm");
+  }
+
+  if (static_cast<i32>(weight.size()) != dim) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "Weight size mismatch in batched rmsnorm");
+  }
+
+  if (static_cast<i32>(output.size()) != batch_size * dim) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "Output size mismatch in batched rmsnorm");
+  }
+
+  // Check vectorization alignment
+  constexpr int pack_size = 4;
+  if (dim % pack_size != 0) {
+    return Err<void>(ErrorCode::InvalidArgument,
+                    "Dimension must be multiple of 4 for vectorization");
+  }
+
+  // Launch configuration: batch_size blocks × 128 threads
+  constexpr int threads_num = 128;
+
+  // Need non-const pointers for kernel
+  float* in_ptr = const_cast<float*>(input.data());
+  float* wei_ptr = const_cast<float*>(weight.data());
+  float* out_ptr = output.data();
+
+  // Launch batch_size kernels in parallel
+  // Each block processes one row: input[block_idx * dim : (block_idx+1) * dim]
+  for (i32 i = 0; i < batch_size; ++i) {
+    float* in_row = in_ptr + i * dim;
+    float* out_row = out_ptr + i * dim;
+
+    if (stream) {
+      row_rmsnorm_f32<128><<<1, threads_num, 0, stream>>>(
+          in_row, wei_ptr, out_row, dim, eps);
+    } else {
+      row_rmsnorm_f32<128><<<1, threads_num>>>(
+          in_row, wei_ptr, out_row, dim, eps);
+    }
+  }
+
+  // Check for launch errors
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    LOG(ERROR) << "CUDA batched rmsnorm kernel launch failed: " << cudaGetErrorString(err);
+    return Err<void>(ErrorCode::CudaError,
+                    std::string("CUDA batched rmsnorm kernel launch failed: ") +
+                        cudaGetErrorString(err));
+  }
+
+  return Ok();
+}
+
 }  // namespace photon::kernels::cuda
