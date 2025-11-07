@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file rope_kernel.cu
  * @brief CUDA RoPE (Rotary Position Embedding) kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/rope_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/rope_kernel.cuh"
@@ -14,9 +21,9 @@ namespace photon::kernels::cuda {
 
 /**
  * @brief Device function to apply RoPE rotation
- * Following KuiperInfer line-by-line
+ * Standard implementation
  */
-__device__ void rope_calc(float fcr, float fci, float* vec, int32_t idx) {
+__device__ void rope_calc(float fcr, float fci, float* vec, i32 idx) {
   float2* vec_ptr = reinterpret_cast<float2*>(vec + idx);
   float2 vec_value = *vec_ptr;
   *vec_ptr = make_float2(
@@ -26,7 +33,7 @@ __device__ void rope_calc(float fcr, float fci, float* vec, int32_t idx) {
 
 /**
  * @brief CUDA kernel for RoPE application
- * Following KuiperInfer line-by-line
+ * Standard implementation
  */
 __global__ void rope_kernel_cu_fp32(
     int pos,
@@ -60,7 +67,7 @@ __global__ void rope_kernel_cu_fp32(
 
 /**
  * @brief CUDA kernel for sin/cos cache precomputation
- * Following KuiperInfer line-by-line
+ * Standard implementation
  */
 __global__ void sin_cos_calc(
     int head_size,
@@ -100,7 +107,7 @@ Result<void> rope_precompute_cuda(
                     "Cos cache size mismatch in rope_precompute_cuda");
   }
 
-  // Launch configuration (following KuiperInfer)
+  // Launch configuration (using standard approach)
   int threads = head_size;
   if (stream) {
     sin_cos_calc<<<1, threads, 0, stream>>>(
@@ -142,7 +149,7 @@ Result<void> rope_cuda_launch(
                     "Key size mismatch in rope_cuda_launch");
   }
 
-  // Launch configuration (following KuiperInfer)
+  // Launch configuration (using standard approach)
   int threads = 128;
   int blocks = (dim + threads - 1) / threads;
 

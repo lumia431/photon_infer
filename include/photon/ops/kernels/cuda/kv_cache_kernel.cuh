@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file kv_cache_kernel.cuh
  * @brief GPU kernels for efficient KV cache operations
@@ -35,10 +42,10 @@ Result<void> batched_kv_write_launch(
     const float* v_batch,
     float* key_cache,
     float* value_cache,
-    const int32_t* cache_offsets,
-    const int32_t* positions,
-    int32_t batch_size,
-    int32_t kv_dim,
+    const i32* cache_offsets,
+    const i32* positions,
+    i32 batch_size,
+    i32 kv_dim,
     cudaStream_t stream = nullptr);
 
 }  // namespace photon::kernels::cuda

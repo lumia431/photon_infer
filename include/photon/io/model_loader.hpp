@@ -1,9 +1,15 @@
-#ifndef PHOTON_MODEL_MODEL_LOADER_HPP
-#define PHOTON_MODEL_MODEL_LOADER_HPP
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 
 #include "photon/core/error.hpp"
-#include "photon/model/config.hpp"
-#include "photon/model/raw_model_data.hpp"
+#include "photon/arch/config.hpp"
+#include "photon/io/raw_model_data.hpp"
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -63,7 +69,7 @@ public:
 
   /**
    * @brief Load model with explicit weight type (compile-time checked)
-   * @tparam WeightType float or int8_t
+   * @tparam WeightType float or i8
    */
   template <typename WeightType>
     requires(std::same_as<WeightType, f32> || std::same_as<WeightType, i8>)
@@ -99,4 +105,3 @@ private:
 
 } // namespace photon::model
 
-#endif // PHOTON_MODEL_MODEL_LOADER_HPP

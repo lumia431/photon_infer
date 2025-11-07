@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file matmul.hpp
  * @brief Matrix multiplication operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_MATMUL_HPP
-#define PHOTON_OPS_MATMUL_HPP
 
 #include "operator.hpp"
 #include "photon/core/quant.hpp"
@@ -300,4 +306,3 @@ static_assert(UnaryOperator<MatMulOp>, "MatMulOp must satisfy UnaryOperator conc
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_MATMUL_HPP

@@ -1,9 +1,13 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file batched_infer_multi_prompts.cpp
  * @brief Batched inference with multiple different prompts
- *
- * Test batched inference with different prompts running in parallel,
- * showing both correctness and performance.
  */
 
 #include <iostream>
@@ -15,10 +19,10 @@
 #include <ctime>
 #include <glog/logging.h>
 
-#include "photon/model/llama_model.hpp"
-#include "photon/model/checkpoint.hpp"
-#include "photon/model/tokenizer.hpp"
-#include "photon/model/kv_cache_manager.hpp"
+#include "photon/arch/llama_model.hpp"
+#include "photon/io/checkpoint.hpp"
+#include "photon/io/tokenizer.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
 
 #ifdef PHOTON_USE_CUDA
 #include <cuda_runtime.h>
@@ -27,55 +31,6 @@
 
 using namespace photon;
 using namespace photon::model;
-
-/**
- * @brief Simple CPU argmax (greedy sampling)
- */
-i32 argmax_cpu(const f32* logits, i32 vocab_size) {
-  i32 max_idx = 0;
-  f32 max_val = logits[0];
-  for (i32 i = 1; i < vocab_size; ++i) {
-    if (logits[i] > max_val) {
-      max_val = logits[i];
-      max_idx = i;
-    }
-  }
-  return max_idx;
-}
-
-/**
- * @brief Sample next token from logits using temperature sampling
- */
-i32 sample_token(const f32* logits, i32 vocab_size, f32 temperature = 0.8f) {
-  // Use greedy decoding for speed
-  if (temperature <= 0.0f) {
-    return argmax_cpu(logits, vocab_size);
-  }
-
-  std::vector<f32> probs(vocab_size);
-  f32 max_logit = *std::max_element(logits, logits + vocab_size);
-
-  f32 sum_exp = 0.0f;
-  for (i32 i = 0; i < vocab_size; ++i) {
-    probs[i] = std::exp((logits[i] - max_logit) / temperature);
-    sum_exp += probs[i];
-  }
-
-  for (i32 i = 0; i < vocab_size; ++i) {
-    probs[i] /= sum_exp;
-  }
-
-  f32 rand_val = static_cast<f32>(rand()) / static_cast<f32>(RAND_MAX);
-  f32 cumulative = 0.0f;
-  for (i32 i = 0; i < vocab_size; ++i) {
-    cumulative += probs[i];
-    if (rand_val <= cumulative) {
-      return i;
-    }
-  }
-
-  return vocab_size - 1;
-}
 
 /**
  * @brief Run batched inference with multiple different prompts
@@ -164,21 +119,12 @@ Result<void> batched_inference_multi_prompts(
 
   i32 total_tokens_generated = 0;
 
-  // Performance tracking
-  double total_forward_time = 0.0;
-  double total_copy_time = 0.0;
-  double total_sample_time = 0.0;
-  i32 num_forwards = 0;
-  i32 num_copies = 0;
-
-  // ========== PREFILL PHASE: Process all prompt tokens at once ==========
-  LOG(INFO) << "\n========== PREFILL PHASE ==========";
-  LOG(INFO) << "Max prompt len: " << max_prompt_len;
-  auto prefill_start_time = std::chrono::high_resolution_clock::now();
+  // Prefill phase: Process all prompt tokens
+  if (print_output) {
+    LOG(INFO) << "\n========== PREFILL PHASE ==========";
+  }
 
   for (i32 pos = 0; pos < max_prompt_len; ++pos) {
-    // LOG(INFO) << "Prefill position " << pos << "/" << max_prompt_len;
-    // Check if any sequence still has tokens to process at this position
     bool has_work = false;
     for (i32 i = 0; i < batch_size; ++i) {
       if (pos < static_cast<i32>(prompt_tokens_list[i].size())) {
@@ -195,48 +141,27 @@ Result<void> batched_inference_multi_prompts(
 
     if (!has_work) break;
 
-    // Forward pass
-    auto forward_start = std::chrono::high_resolution_clock::now();
     auto result = model.forward_batched(tokens_batch, positions_batch, seq_ids, logits_cuda);
-
     if (!result) {
       LOG(ERROR) << "Prefill failed at position " << pos << ": " << result.error().message();
-      // Free sequences
       for (i32 i = 0; i < batch_size; ++i) {
         cache_mgr->free_sequence(i);
       }
       return Err<void>(result.error());
     }
-
-#ifdef PHOTON_USE_CUDA
-    // Synchronize to get accurate forward timing
-    cudaDeviceSynchronize();
-#endif
-    auto forward_end = std::chrono::high_resolution_clock::now();
-    total_forward_time += std::chrono::duration<double>(forward_end - forward_start).count();
-    num_forwards++;
   }
 
-  auto prefill_end_time = std::chrono::high_resolution_clock::now();
-  double prefill_time = std::chrono::duration<double>(prefill_end_time - prefill_start_time).count();
-  i32 num_prefill_forwards = num_forwards;
-
-  LOG(INFO) << "Prefill complete: " << num_prefill_forwards << " forwards, "
-            << prefill_time << "s";
-
-  // ========== DECODE PHASE: Generate tokens one by one ==========
-  LOG(INFO) << "\n========== DECODE PHASE ==========";
+  if (print_output) {
+    LOG(INFO) << "Prefill complete";
+    LOG(INFO) << "\n========== DECODE PHASE ==========";
+  }
 
 #ifdef PHOTON_USE_CUDA
-  // Pre-allocate GPU buffer for sampled tokens (reused across decode loop)
   i32* sampled_tokens_gpu;
   cudaMalloc(&sampled_tokens_gpu, batch_size * sizeof(i32));
   std::vector<i32> sampled_tokens(batch_size);
 #endif
-
-  // Generation loop
   for (i32 step = 0; step < max_new_tokens; ++step) {
-    // Check if all sequences finished
     bool all_finished = true;
     for (i32 i = 0; i < batch_size; ++i) {
       if (!finished[i]) {
@@ -245,19 +170,14 @@ Result<void> batched_inference_multi_prompts(
       }
     }
     if (all_finished) break;
-
-    // Prepare batch inputs for decode phase
     for (i32 i = 0; i < batch_size; ++i) {
       if (finished[i]) {
         tokens_batch[i] = tokenizer.eos_id();
         positions_batch[i] = current_positions[i];
       } else {
-        // Use last generated token, or last prompt token for first decode
         if (generated_sequences[i].empty()) {
-          // First decode step: use last prompt token
           tokens_batch[i] = prompt_tokens_list[i].back();
         } else {
-          // Subsequent decode steps: use last generated token
           tokens_batch[i] = generated_sequences[i].back();
         }
         current_positions[i]++;
@@ -265,13 +185,9 @@ Result<void> batched_inference_multi_prompts(
       }
     }
 
-    // Forward pass
-    auto forward_start = std::chrono::high_resolution_clock::now();
     auto result = model.forward_batched(tokens_batch, positions_batch, seq_ids, logits_cuda);
-
     if (!result) {
       LOG(ERROR) << "Decode failed at step " << step << ": " << result.error().message();
-      // Free sequences
       for (i32 i = 0; i < batch_size; ++i) {
         cache_mgr->free_sequence(i);
       }
@@ -279,18 +195,6 @@ Result<void> batched_inference_multi_prompts(
     }
 
 #ifdef PHOTON_USE_CUDA
-    // Synchronize to get accurate forward timing
-    cudaDeviceSynchronize();
-#endif
-    auto forward_end = std::chrono::high_resolution_clock::now();
-    total_forward_time += std::chrono::duration<double>(forward_end - forward_start).count();
-    num_forwards++;
-
-    // GPU-based argmax sampling (no logits copy needed!)
-    auto sample_start = std::chrono::high_resolution_clock::now();
-
-#ifdef PHOTON_USE_CUDA  // Use GPU sampling
-    // Launch GPU argmax kernel (using pre-allocated buffer)
     auto sampling_result = photon::kernels::cuda::argmax_sampling_launch(
         logits_cuda.ptr<f32>(),
         sampled_tokens_gpu,
@@ -304,15 +208,8 @@ Result<void> batched_inference_multi_prompts(
       return Err<void>(sampling_result.error());
     }
 
-    // Copy only the sampled tokens (batch_size integers) from GPU to CPU
-    auto copy_start = std::chrono::high_resolution_clock::now();
     cudaMemcpy(sampled_tokens.data(), sampled_tokens_gpu,
                batch_size * sizeof(i32), cudaMemcpyDeviceToHost);
-    auto copy_end = std::chrono::high_resolution_clock::now();
-    total_copy_time += std::chrono::duration<double>(copy_end - copy_start).count();
-    num_copies++;
-
-    // Update sequences with sampled tokens
     for (i32 i = 0; i < batch_size; ++i) {
       if (finished[i]) continue;
 
@@ -326,45 +223,16 @@ Result<void> batched_inference_multi_prompts(
         finished[i] = true;
       }
     }
-#else
-    // CPU fallback: copy logits and sample
-    auto logits_cpu_result = logits_cuda.to(DeviceType::CPU);
-    if (!logits_cpu_result) {
-      return Err<void>(logits_cpu_result.error());
-    }
-    auto logits_cpu = std::move(logits_cpu_result.value());
-    const f32* logits_ptr = logits_cpu.ptr<f32>();
-
-    for (i32 i = 0; i < batch_size; ++i) {
-      if (finished[i]) continue;
-
-      const f32* seq_logits = logits_ptr + i * model.config().vocab_size;
-      i32 next_token = sample_token(seq_logits, model.config().vocab_size, 0.8f);
-
-      generated_sequences[i].push_back(next_token);
-      total_tokens_generated++;
-
-      // Check for EOS
-      if (next_token == tokenizer.eos_id() ||
-          static_cast<i32>(generated_sequences[i].size()) >= max_new_tokens) {
-        finished[i] = true;
-      }
-    }
 #endif
-
-    auto sample_end = std::chrono::high_resolution_clock::now();
-    total_sample_time += std::chrono::duration<double>(sample_end - sample_start).count();
   }
 
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration<double>(end - start).count();
 
 #ifdef PHOTON_USE_CUDA
-  // Free GPU sampling buffer
   cudaFree(sampled_tokens_gpu);
 #endif
 
-  // Print results
   if (print_output) {
     LOG(INFO) << "\n========================================";
     LOG(INFO) << "Generated Results:";
@@ -382,20 +250,11 @@ Result<void> batched_inference_multi_prompts(
     LOG(INFO) << "========================================";
     LOG(INFO) << "Performance Statistics:";
     LOG(INFO) << "========================================";
-    LOG(INFO) << "Total tokens generated: " << total_tokens_generated;
+    LOG(INFO) << "Total tokens: " << total_tokens_generated;
     LOG(INFO) << "Time: " << duration << " seconds";
     LOG(INFO) << "Throughput: " << (static_cast<double>(total_tokens_generated) / duration) << " tokens/s";
-    LOG(INFO) << "Average per sequence: " << (static_cast<double>(total_tokens_generated) / batch_size) << " tokens";
-    LOG(INFO) << "\nTime Breakdown:";
-    LOG(INFO) << "  Forward passes: " << num_forwards << " calls, " << total_forward_time << "s ("
-              << (total_forward_time/duration*100) << "%)";
-    LOG(INFO) << "  GPU→CPU copies: " << num_copies << " calls, " << total_copy_time << "s ("
-              << (total_copy_time/duration*100) << "%)";
-    LOG(INFO) << "  Sampling: " << total_sample_time << "s ("
-              << (total_sample_time/duration*100) << "%)\n";
+    LOG(INFO) << "Average per sequence: " << (static_cast<double>(total_tokens_generated) / batch_size) << " tokens\n";
   }
-
-  // Free sequences
   for (i32 i = 0; i < batch_size; ++i) {
     auto free_result = cache_mgr->free_sequence(i);
     if (!free_result) {
@@ -490,10 +349,9 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // Initialize paged KV cache
   LOG(INFO) << "\n[4/4] Initializing paged KV cache...";
-  i32 max_sequences = 32;  // Maximum concurrent sequences
-  i32 max_seq_len = 256;   // Maximum tokens per sequence (prompt + generation)
+  i32 max_sequences = 32;
+  i32 max_seq_len = 256;
   auto cache_result = model.init_paged_cache(max_sequences, max_seq_len);
   if (!cache_result) {
     LOG(ERROR) << "Failed to initialize paged cache: " << cache_result.error().message();
@@ -503,7 +361,6 @@ int main(int argc, char** argv) {
             << " tokens/seq";
   LOG(INFO) << "      Model ready!\n";
 
-  // Test with multiple prompts for true batched inference
   std::vector<std::string> test_prompts = {
     "What is your name?",
     "Tell me a story about a cat.",
@@ -515,7 +372,7 @@ int main(int argc, char** argv) {
     "Describe our solar system."
   };
 
-  i32 max_new_tokens = 100;  // Generate 100 tokens per sequence
+  i32 max_new_tokens = 100;
 
   auto result = batched_inference_multi_prompts(model, tokenizer, test_prompts,
                                                 max_new_tokens, true);

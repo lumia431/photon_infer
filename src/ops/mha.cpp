@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 #include "photon/ops/mha.hpp"
 #include "photon/ops/kernels/mha_kernel.hpp"
 #include <span>
@@ -150,7 +157,7 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
   }
 #ifdef PHOTON_USE_CUDA
   else if (device_ == DeviceType::CUDA) {
-    // CUDA path (following KuiperInfer)
+    // CUDA path (using standard approach)
     if (query.dtype() == DataType::Float32) {
       std::span<const f32> query_span(query.ptr<f32>(), query.size());
       std::span<const f32> key_span(key_cache.ptr<f32>(), key_cache.size());

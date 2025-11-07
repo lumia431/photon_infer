@@ -1,11 +1,18 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file llama_model.cpp
  * @brief LLaMA model implementation
  * @version 0.1.0
  */
 
-#include "photon/model/llama_model.hpp"
-#include "photon/model/kv_cache_manager.hpp"
+#include "photon/arch/llama_model.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
 #include <algorithm>
 #include <iostream>
 #include <cstring>

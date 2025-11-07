@@ -1,15 +1,20 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
- * @file matmul_kernel_quant_v2.cu
+ * @file matmul_gemm_quant.cu
  * @brief Optimized INT8 quantized GEMM kernel with vectorization
  * @version 2.0.0
  *
  * Key optimizations:
  * 1. Vectorized memory access (float4 for weights, float for input)
  * 2. Shared memory tiling for input vectors
- * 3. Better thread utilization
+ * 3. Optimized thread utilization
  * 4. Reduced bank conflicts
- *
- * Expected speedup: 1.5-2.5x over v1
  */
 
 #include <cuda_runtime.h>
@@ -39,7 +44,7 @@ namespace photon::kernels::cuda {
  * Threads collaborate to compute the dot product: input[b, :] @ weight[k, :]
  */
 template <int BLOCK_SIZE>
-__global__ void matmul_gemm_quant_v2_kernel(
+__global__ void matmul_gemm_quant_kernel(
     const f32* __restrict__ input,      // [B × M]
     const i8* __restrict__ weight,       // [K × M] (row-major)
     const f32* __restrict__ scales,      // [num_groups]
@@ -122,7 +127,7 @@ __global__ void matmul_gemm_quant_v2_kernel(
 /**
  * @brief Launch optimized batched quantized GEMM kernel (v2)
  */
-Result<void> matmul_gemm_quant_v2_launch(
+Result<void> matmul_gemm_quant_launch(
     const f32* input_ptr,
     usize input_size,
     const i8* weight_ptr,
@@ -165,12 +170,12 @@ Result<void> matmul_gemm_quant_v2_launch(
 
   // Launch kernel
   if (stream != nullptr) {
-    matmul_gemm_quant_v2_kernel<THREADS>
+    matmul_gemm_quant_kernel<THREADS>
         <<<grid, block, 0, stream>>>(
             input_ptr, weight_ptr, scales_ptr, group_size,
             output_ptr, batch_size, M, K);
   } else {
-    matmul_gemm_quant_v2_kernel<THREADS>
+    matmul_gemm_quant_kernel<THREADS>
         <<<grid, block>>>(
             input_ptr, weight_ptr, scales_ptr, group_size,
             output_ptr, batch_size, M, K);

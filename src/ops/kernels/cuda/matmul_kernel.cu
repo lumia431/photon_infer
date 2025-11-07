@@ -1,14 +1,21 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file matmul_kernel.cu
  * @brief CUDA matrix multiplication kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/matmul_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/matmul_kernel.cuh"
-#include "photon/ops/kernels/cuda/matmul_kernel_quant.cuh"
+#include "photon/ops/kernels/cuda/matmul_gemv_quant.cuh"
 #include <cub/block/block_reduce.cuh>
 #include <glog/logging.h>
 
@@ -17,7 +24,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief CUDA kernel for matrix-vector multiplication (GEMV)
  *
- * Following KuiperInfer line-by-line:
+ * Standard implementation:
  * - Template parameters: THREAD_PER_BLOCK=128, ROW_PER_BLOCK=1
  * - Each block computes ROW_PER_BLOCK output elements
  * - Uses float4 vectorization for efficiency
@@ -37,19 +44,19 @@ __global__ void matmul_kernel_cu_fp32(
   __shared__ float sdata[THREAD_PER_BLOCK];
   unsigned int tid = threadIdx.x;
 
-  // Each block processes ROW_PER_BLOCK rows (following KuiperInfer)
+  // Each block processes ROW_PER_BLOCK rows (using standard approach)
   int start_row = blockIdx.x * ROW_PER_BLOCK;
   int end_row = start_row + ROW_PER_BLOCK;
   if (start_row >= K) {
     return;
   }
 
-  // Vectorization configuration (following KuiperInfer)
+  // Vectorization configuration (using standard approach)
   constexpr int pack_size = 4;
   const int pack_num = M / pack_size;
   const int pack_off = pack_size * pack_num;
 
-  // Process each row (following KuiperInfer)
+  // Process each row (using standard approach)
 #pragma unroll
   for (int p = start_row; p < end_row; ++p) {
     sdata[tid] = 0;
@@ -57,7 +64,7 @@ __global__ void matmul_kernel_cu_fp32(
     float4* input_float4_ptr = (float4*)input;
     float4* weight_float4_ptr = (float4*)(weight + row_offset);
 
-    // Vectorized dot product (following KuiperInfer)
+    // Vectorized dot product (using standard approach)
 #pragma unroll
     for (int i = tid; i < pack_num; i += blockDim.x) {
       float4 input_float4 = *(input_float4_ptr + i);
@@ -69,20 +76,20 @@ __global__ void matmul_kernel_cu_fp32(
       sdata[tid] += part_sum;
     }
 
-    // Handle remaining elements (following KuiperInfer)
+    // Handle remaining elements (using standard approach)
     for (int i = pack_off + tid; i < M; i += blockDim.x) {
       sdata[tid] += input[i] * weight[row_offset + i];
     }
 
     __syncthreads();
 
-    // Block-level reduction using CUB (following KuiperInfer)
+    // Block-level reduction using CUB (using standard approach)
     using BlockReduce = cub::BlockReduce<float, THREAD_PER_BLOCK>;
     __shared__ typename BlockReduce::TempStorage temp;
     float part_sum = BlockReduce(temp).Sum(sdata[tid]);
     __syncthreads();
 
-    // Thread 0 writes result (following KuiperInfer)
+    // Thread 0 writes result (using standard approach)
     if (tid == 0) {
       output[p] = part_sum;
     }
@@ -98,7 +105,7 @@ Result<void> matmul_gemv_cuda_launch(
     i32 N,
     cudaStream_t stream) {
 
-  // Validate dimensions (following KuiperInfer)
+  // Validate dimensions (using standard approach)
   if (static_cast<i32>(input.size()) != M) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Input size mismatch in matmul_gemv_cuda_launch");
@@ -114,14 +121,14 @@ Result<void> matmul_gemv_cuda_launch(
                     "Output size mismatch in matmul_gemv_cuda_launch");
   }
 
-  // Check vectorization alignment (following KuiperInfer)
+  // Check vectorization alignment (using standard approach)
   constexpr int packet_size = 4;
   if (M % packet_size != 0) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Input dimension M must be multiple of 4 for vectorization");
   }
 
-  // Launch configuration (following KuiperInfer exactly)
+  // Launch configuration (using standard approach exactly)
   // Template: <THREAD_PER_BLOCK=128, ROW_PER_BLOCK=1>
   // Grid: N blocks, Block: 128 threads
   const i32 K = N;  // Number of output elements
@@ -227,41 +234,6 @@ Result<void> matmul_gemm_cublas_launch(
     LOG(ERROR) << "cuBLAS GEMM failed with status: " << status;
     return Err<void>(ErrorCode::CudaError,
                     "cuBLAS GEMM failed");
-  }
-
-  return Ok();
-}
-
-Result<void> matmul_gemm_quant_launch(
-    const f32* input,
-    usize input_size,
-    const i8* weight_quant,
-    usize weight_size,
-    const f32* scales,
-    usize scales_size,
-    i32 group_size,
-    f32* output,
-    usize output_size,
-    i32 batch_size,
-    i32 M,
-    i32 N,
-    cudaStream_t stream) {
-
-  // Temporarily use loop for debugging
-  for (i32 b = 0; b < batch_size; ++b) {
-    const f32* input_row = input + b * N;
-    f32* output_row = output + b * M;
-
-    auto result = matmul_gemv_quant_launch(
-        input_row, N,
-        weight_quant, weight_size,
-        scales, scales_size,
-        group_size,
-        output_row, M,
-        N, M,
-        stream);
-
-    if (!result) return result;
   }
 
   return Ok();

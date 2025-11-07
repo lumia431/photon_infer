@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file matmul.cpp
  * @brief Matrix multiplication operator implementation
@@ -9,8 +16,8 @@
 
 #ifdef PHOTON_USE_CUDA
 #include "photon/ops/kernels/cuda/matmul_kernel.cuh"
-#include "photon/ops/kernels/cuda/matmul_kernel_quant.cuh"
-#include "photon/ops/kernels/cuda/matmul_kernel_quant_v2.cuh"
+#include "photon/ops/kernels/cuda/matmul_gemv_quant.cuh"
+#include "photon/ops/kernels/cuda/matmul_gemm_quant.cuh"
 #include "photon/ops/kernels/cuda/matmul_dequant_cached.cuh"
 #include <cublas_v2.h>
 #endif
@@ -207,8 +214,8 @@ Result<void> MatMulOp::forward_cuda(const Tensor& input, Tensor& output) {
             reinterpret_cast<f32**>(&weight_fp32_cache_),
             nullptr);
       } else {
-        // Fallback to custom INT8 kernel v2
-        return kernels::cuda::matmul_gemm_quant_v2_launch(
+        // Fallback to custom INT8 kernel
+        return kernels::cuda::matmul_gemm_quant_launch(
             input.ptr<f32>(), input.size(),
             weight.ptr<i8>(), weight.size(),
             scale_tensor_.ptr<f32>(), scale_tensor_.size(),

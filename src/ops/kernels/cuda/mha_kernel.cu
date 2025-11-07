@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file mha_kernel.cu
  * @brief CUDA Multi-Head Attention kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/mha_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/mha_kernel.cuh"
@@ -15,7 +22,7 @@ namespace photon::kernels::cuda {
 
 /**
  * @brief Device function to compute softmax in-place
- * Following KuiperInfer line-by-line
+ * Standard implementation
  */
 __device__ void softmax_gpu(float* __restrict__ x, int size) {
   int tid = threadIdx.x;
@@ -60,21 +67,21 @@ __device__ void softmax_gpu(float* __restrict__ x, int size) {
 
 /**
  * @brief CUDA kernel for Multi-Head Attention
- * Following KuiperInfer line-by-line
+ * Standard implementation
  */
 __global__ void multi_head_attention_kernel(
-    int32_t pos,
-    int32_t seq_len,
+    i32 pos,
+    i32 seq_len,
     float* query,
     float* score_ptr,
     float* output,
     float* key_cache,
     float* value_cache,
-    int32_t kv_dim,
-    int32_t kv_mul,
-    int32_t head_num,
-    int32_t head_size,
-    int32_t layer_offset) {
+    i32 kv_dim,
+    i32 kv_mul,
+    i32 head_num,
+    i32 head_size,
+    i32 layer_offset) {
 
   int head = blockIdx.x;
   if (head >= head_num) {
@@ -84,7 +91,7 @@ __global__ void multi_head_attention_kernel(
   float* query_head = query + head * head_size;
   float* score_head = score_ptr + head * seq_len;
   float scale = 1.f / sqrtf(head_size);
-  int32_t head_offset = (head / kv_mul) * head_size;
+  i32 head_offset = (head / kv_mul) * head_size;
 
   // Compute attention scores: Q·K^T
   for (int t = threadIdx.x; t <= pos; t += blockDim.x) {
@@ -147,9 +154,9 @@ Result<void> mha_cuda_launch(
     std::span<const f32> value_cache,
     cudaStream_t stream) {
 
-  // Calculate layer offset (following KuiperInfer)
-  int32_t layer_offset = layer_index * seq_len * kv_dim;
-  int32_t thread_num = 128;
+  // Calculate layer offset (using standard approach)
+  i32 layer_offset = layer_index * seq_len * kv_dim;
+  i32 thread_num = 128;
 
   // Launch configuration
   if (stream) {

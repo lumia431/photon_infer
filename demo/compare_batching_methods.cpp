@@ -1,21 +1,13 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file compare_batching_methods.cpp
- * @brief Fair comparison between baseline and continuous batching
- *
- * This demo runs BOTH methods with identical:
- * - Model weights
- * - Prompts
- * - Random seeds
- * - Hardware
- *
- * Scenario:
- * - 4 long requests arrive at t=0 (80 tokens each)
- * - 4 urgent short requests arrive at t=0.5s (10 tokens each)
- *
- * We measure:
- * - Latency for each request
- * - Total throughput
- * - GPU utilization
+ * @brief Comparison between baseline and continuous batching
  */
 
 #include <iostream>
@@ -25,9 +17,9 @@
 #include <glog/logging.h>
 
 #include "photon/scheduler/continuous_batch_engine.hpp"
-#include "photon/model/llama_model.hpp"
-#include "photon/model/checkpoint.hpp"
-#include "photon/model/tokenizer.hpp"
+#include "photon/arch/llama_model.hpp"
+#include "photon/io/checkpoint.hpp"
+#include "photon/io/tokenizer.hpp"
 
 #ifdef PHOTON_USE_CUDA
 #include <cuda_runtime.h>

@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rope.hpp
  * @brief Rotary Position Embedding (RoPE) operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_ROPE_HPP
-#define PHOTON_OPS_ROPE_HPP
 
 #include <vector>
 #include "operator.hpp"
@@ -199,4 +205,3 @@ static_assert(Operator<RoPEOp>, "RoPEOp must satisfy Operator concept");
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_ROPE_HPP

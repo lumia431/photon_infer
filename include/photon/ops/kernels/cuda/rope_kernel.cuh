@@ -1,14 +1,20 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rope_kernel.cuh
  * @brief CUDA RoPE (Rotary Position Embedding) kernel interface
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/rope_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_ROPE_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_ROPE_KERNEL_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -59,4 +65,3 @@ Result<void> rope_cuda_launch(
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_ROPE_KERNEL_CUH

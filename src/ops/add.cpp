@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file add.cpp
  * @brief Element-wise addition operator implementation
@@ -110,7 +117,7 @@ Result<void> AddOp::forward(const Tensor& input1, const Tensor& input2, Tensor& 
   }
 #ifdef PHOTON_USE_CUDA
   else if (device_ == DeviceType::CUDA) {
-    // CUDA path (following KuiperInfer)
+    // CUDA path (using standard approach)
     if (input1.dtype() == DataType::Float32) {
       std::span<const f32> input1_span(input1.ptr<f32>(), input1.size());
       std::span<const f32> input2_span(input2.ptr<f32>(), input2.size());

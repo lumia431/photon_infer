@@ -1,23 +1,29 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file checkpoint.hpp
  * @brief Checkpoint file format and loader for LLaMA models
  * @version 0.1.0
  */
 
-#ifndef PHOTON_MODEL_CHECKPOINT_HPP
-#define PHOTON_MODEL_CHECKPOINT_HPP
 
 #include <memory>
 #include <string>
 #include "photon/core/error.hpp"
 #include "photon/core/tensor.hpp"
 #include "photon/core/types.hpp"
-#include "photon/model/transformer_block.hpp"
+#include "photon/arch/transformer_block.hpp"
 
 namespace photon::model {
 
 /**
- * @brief Checkpoint file header matching KuiperInfer format
+ * @brief Checkpoint file header matching standard format
  *
  * File structure:
  * [Header: 7 × i32] [Weights: float32 array]
@@ -35,7 +41,7 @@ struct CheckpointHeader {
 /**
  * @brief Checkpoint loader using memory-mapped I/O
  *
- * Loads weights from binary checkpoint file in KuiperInfer format:
+ * Loads weights from binary checkpoint file in standard format:
  * - Header: 7 int32 values (dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len)
  * - Weights: float32 array in specific order
  *
@@ -117,4 +123,3 @@ class CheckpointLoader {
 
 }  // namespace photon::model
 
-#endif  // PHOTON_MODEL_CHECKPOINT_HPP

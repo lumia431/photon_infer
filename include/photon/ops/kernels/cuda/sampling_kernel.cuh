@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file sampling_kernel.cuh
  * @brief GPU kernels for token sampling
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_SAMPLING_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_SAMPLING_KERNEL_CUH
 
 #include "photon/core/types.hpp"
 #include "photon/core/error.hpp"
@@ -29,11 +35,10 @@ namespace photon::kernels::cuda {
  */
 Result<void> argmax_sampling_launch(
     const float* logits,
-    int32_t* output,
-    int32_t batch_size,
-    int32_t vocab_size,
+    i32* output,
+    i32 batch_size,
+    i32 vocab_size,
     cudaStream_t stream = nullptr);
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_SAMPLING_KERNEL_CUH

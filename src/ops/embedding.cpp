@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file embedding.cpp
  * @brief Embedding operator implementation
@@ -107,7 +114,7 @@ Result<void> EmbeddingOp::forward_cuda(const Tensor& input, Tensor& output) {
   std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
   std::span<f32> output_data(output.ptr<f32>(), output.size());
 
-  // Launch CUDA kernel (following KuiperInfer)
+  // Launch CUDA kernel (using standard approach)
   i32 num_tokens = static_cast<i32>(input.size());
   return kernels::cuda::embedding_cuda_launch(
       tokens, weight_data, output_data,

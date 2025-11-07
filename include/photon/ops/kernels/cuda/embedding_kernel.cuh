@@ -1,14 +1,20 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file embedding_kernel.cuh
  * @brief CUDA embedding kernel interface
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/emb_kernel.cuh
+ * Implementation based on standard practices at:
+ * h
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_EMBEDDING_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_EMBEDDING_KERNEL_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -20,7 +26,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief Launch CUDA embedding kernel
  *
- * Following KuiperInfer's design:
+ * Following standard design:
  * - Each block processes one token
  * - Each thread processes part of embedding dimension
  * - Grid size = number of tokens
@@ -46,4 +52,3 @@ Result<void> embedding_cuda_launch(
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_EMBEDDING_KERNEL_CUH

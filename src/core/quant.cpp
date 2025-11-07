@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file quant.cpp
  * @brief Implementation of quantization utilities
@@ -134,7 +141,7 @@ quantize_tensor(const Tensor& tensor, i32 group_size) {
 
   // Create quantized tensor
   auto quant_tensor_result = Tensor::create(
-      std::vector<int32_t>(tensor.dims().begin(), tensor.dims().end()),
+      std::vector<i32>(tensor.dims().begin(), tensor.dims().end()),
       DataType::Int8,
       tensor.device(),
       true);

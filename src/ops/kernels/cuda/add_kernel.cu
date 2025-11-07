@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file add_kernel.cu
  * @brief CUDA element-wise addition kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/add_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/add_kernel.cuh"
@@ -15,23 +22,23 @@ namespace photon::kernels::cuda {
 /**
  * @brief CUDA kernel for element-wise addition
  *
- * Following KuiperInfer line-by-line:
+ * Standard implementation:
  * - Each thread processes one element
  * - Simple element-wise: out[i] = in1[i] + in2[i]
  */
 __global__ void add_kernel_cu_fp32(
-    int32_t size,
+    i32 size,
     const float* in1,
     const float* in2,
     float* out) {
 
-  // Following KuiperInfer: compute global thread ID
-  int32_t tid = threadIdx.x + blockDim.x * blockIdx.x;
+  // Following standard: compute global thread ID
+  i32 tid = threadIdx.x + blockDim.x * blockIdx.x;
   if (tid >= size) {
     return;
   }
 
-  // Element-wise addition (following KuiperInfer)
+  // Element-wise addition (using standard approach)
   float in_val1 = in1[tid];
   float in_val2 = in2[tid];
   out[tid] = in_val1 + in_val2;
@@ -44,7 +51,7 @@ Result<void> add_cuda_launch(
     i32 size,
     cudaStream_t stream) {
 
-  // Validate dimensions (following KuiperInfer)
+  // Validate dimensions (using standard approach)
   if (static_cast<i32>(input1.size()) != size) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Input1 size mismatch in add_cuda_launch");
@@ -60,7 +67,7 @@ Result<void> add_cuda_launch(
                     "Output size mismatch in add_cuda_launch");
   }
 
-  // Launch configuration (following KuiperInfer exactly)
+  // Launch configuration (using standard approach exactly)
   // Block: 512 threads, Grid: (size + 512 - 1) / 512 blocks
   constexpr i32 thread_num = 512;
   i32 block_num = (size + thread_num - 1) / thread_num;

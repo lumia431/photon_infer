@@ -1,14 +1,20 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rmsnorm_kernel.cuh
  * @brief CUDA RMS normalization kernel interface
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/rmsnorm_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_RMSNORM_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_RMSNORM_KERNEL_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -20,7 +26,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief Launch CUDA RMS normalization kernel
  *
- * Following KuiperInfer's design:
+ * Following standard design:
  * - Computes: output = input * weight / sqrt(mean(input^2) + eps)
  * - Uses CUB BlockReduce for sum of squares
  * - Uses float4 vectorization
@@ -69,4 +75,3 @@ Result<void> rmsnorm_batched_cuda_launch(
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_RMSNORM_KERNEL_CUH

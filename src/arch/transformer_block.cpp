@@ -1,11 +1,18 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file transformer_block.cpp
  * @brief Transformer block implementation
  * @version 0.1.0
  */
 
-#include "photon/model/transformer_block.hpp"
-#include "photon/model/kv_cache_manager.hpp"
+#include "photon/arch/transformer_block.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
 
 #include <glog/logging.h>
 

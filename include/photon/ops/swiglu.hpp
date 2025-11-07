@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file swiglu.hpp
  * @brief SwiGLU activation operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_SWIGLU_HPP
-#define PHOTON_OPS_SWIGLU_HPP
 
 #include "operator.hpp"
 #include "photon/core/tensor.hpp"
@@ -138,4 +144,3 @@ static_assert(BinaryOperator<SwiGLUOp>, "SwiGLUOp must satisfy BinaryOperator co
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_SWIGLU_HPP

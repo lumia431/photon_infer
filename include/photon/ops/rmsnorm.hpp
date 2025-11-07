@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rmsnorm.hpp
  * @brief RMS normalization operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_RMSNORM_HPP
-#define PHOTON_OPS_RMSNORM_HPP
 
 #include "operator.hpp"
 #include "photon/core/tensor.hpp"
@@ -191,4 +197,3 @@ static_assert(UnaryOperator<RMSNormOp>, "RMSNormOp must satisfy UnaryOperator co
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_RMSNORM_HPP

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file tensor.cpp
  * @brief Tensor class implementation
@@ -19,19 +26,19 @@ namespace photon {
 // Helper Functions
 // ============================================================================
 
-usize Tensor::compute_size(const std::vector<int32_t>& dims) {
+usize Tensor::compute_size(const std::vector<i32>& dims) {
   if (dims.empty()) {
     return 1;  // Scalar
   }
   return std::accumulate(dims.begin(), dims.end(), usize(1),
-                        [](usize a, int32_t b) { return a * b; });
+                        [](usize a, i32 b) { return a * b; });
 }
 
 // ============================================================================
 // Constructors
 // ============================================================================
 
-Tensor::Tensor(Buffer&& buffer, std::vector<int32_t> dims, DataType dtype,
+Tensor::Tensor(Buffer&& buffer, std::vector<i32> dims, DataType dtype,
                DeviceType device)
     : buffer_(std::move(buffer)),
       dims_(std::move(dims)),
@@ -39,7 +46,7 @@ Tensor::Tensor(Buffer&& buffer, std::vector<int32_t> dims, DataType dtype,
       dtype_(dtype),
       device_(device) {}
 
-Result<Tensor> Tensor::create(std::vector<int32_t> dims, DataType dtype,
+Result<Tensor> Tensor::create(std::vector<i32> dims, DataType dtype,
                               DeviceType device, bool need_alloc) {
   if (!need_alloc) {
     // Create empty tensor without allocation
@@ -65,7 +72,7 @@ Result<Tensor> Tensor::create(std::vector<int32_t> dims, DataType dtype,
                   device));
 }
 
-Result<Tensor> Tensor::zeros(std::vector<int32_t> dims, DataType dtype,
+Result<Tensor> Tensor::zeros(std::vector<i32> dims, DataType dtype,
                              DeviceType device) {
   auto result = create(dims, dtype, device);
   if (!result) {
@@ -105,7 +112,7 @@ std::vector<usize> Tensor::strides() const {
 // Operations
 // ============================================================================
 
-Result<void> Tensor::reshape(const std::vector<int32_t>& new_dims) {
+Result<void> Tensor::reshape(const std::vector<i32>& new_dims) {
   usize new_size = compute_size(new_dims);
 
   if (new_size != size_) {
@@ -128,7 +135,7 @@ Result<Tensor> Tensor::clone() const {
   return Ok(Tensor(std::move(buffer_result.value()), dims_, dtype_, device_));
 }
 
-void Tensor::reset(DataType dtype, const std::vector<int32_t>& dims) {
+void Tensor::reset(DataType dtype, const std::vector<i32>& dims) {
   dtype_ = dtype;
   dims_ = dims;
   size_ = compute_size(dims);
@@ -234,7 +241,7 @@ Result<Tensor> Tensor::to(DeviceType target_device) const {
 // Tensor Slicing (Zero-Copy Views)
 // ============================================================================
 
-Tensor::Tensor(const Tensor& parent, std::vector<int32_t> dims, usize data_offset)
+Tensor::Tensor(const Tensor& parent, std::vector<i32> dims, usize data_offset)
     : buffer_(),  // Empty buffer - we don't own the memory!
       dims_(std::move(dims)),
       size_(compute_size(dims_)),

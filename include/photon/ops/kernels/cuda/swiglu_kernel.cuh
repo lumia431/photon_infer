@@ -1,14 +1,20 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file swiglu_kernel.cuh
  * @brief CUDA SwiGLU activation kernel interface
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/swiglu_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_SWIGLU_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_SWIGLU_KERNEL_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -20,7 +26,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief Launch CUDA SwiGLU activation kernel
  *
- * Following KuiperInfer's design:
+ * Following standard design:
  * - SwiGLU: out = swish(in1) * in2
  * - Swish: swish(x) = x * sigmoid(x) = x * (1 / (1 + exp(-x)))
  * - Uses shared memory for caching inputs
@@ -65,4 +71,3 @@ Result<void> swiglu_batched_cuda_launch(
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_SWIGLU_KERNEL_CUH

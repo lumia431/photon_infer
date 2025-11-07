@@ -1,11 +1,10 @@
 /**
- * @file matmul_kernel_quant.cuh
- * @brief CUDA kernel declarations for quantized matrix multiplication
+ * @file matmul_gemv_quant.cuh
+ * @brief CUDA kernel declarations for quantized matrix-vector multiplication (GEMV)
  * @version 0.1.0
  */
+#pragma once
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_MATMUL_KERNEL_QUANT_CUH
-#define PHOTON_OPS_KERNELS_CUDA_MATMUL_KERNEL_QUANT_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -79,4 +78,3 @@ Result<void> matmul_gemm_quant_batched_launch(
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_MATMUL_KERNEL_QUANT_CUH

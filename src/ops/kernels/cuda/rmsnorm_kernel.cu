@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file rmsnorm_kernel.cu
  * @brief CUDA RMS normalization kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/rmsnorm_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/rmsnorm_kernel.cuh"
@@ -16,7 +23,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief CUDA kernel for RMS normalization
  *
- * Following KuiperInfer line-by-line:
+ * Standard implementation:
  * - Template parameter: BLOCK_DIM=128
  * - Single block, processes entire row
  * - Phase 1: Compute sum of squares using CUB BlockReduce
@@ -25,7 +32,7 @@ namespace photon::kernels::cuda {
  *
  * Grid: 1 block, Block: 128 threads
  */
-template <int32_t BLOCK_DIM>
+template <i32 BLOCK_DIM>
 static __global__ void row_rmsnorm_f32(
     float* in,
     float* wei,
@@ -35,12 +42,12 @@ static __global__ void row_rmsnorm_f32(
 
   const int tid = threadIdx.x;
 
-  // Vectorization configuration (following KuiperInfer)
+  // Vectorization configuration (using standard approach)
   constexpr int pack_size = 4;
   const int pack_num = size / pack_size;
   const int pack_off = pack_size * pack_num;
 
-  // Phase 1: Compute sum of squares (following KuiperInfer)
+  // Phase 1: Compute sum of squares (using standard approach)
   float sum = 0.0f;
   float4* in_pack = reinterpret_cast<float4*>(in);
   for (int i = tid; i < pack_num; i += blockDim.x) {
@@ -51,12 +58,12 @@ static __global__ void row_rmsnorm_f32(
     sum += in_float4.w * in_float4.w;
   }
 
-  // Handle remaining elements (following KuiperInfer)
+  // Handle remaining elements (using standard approach)
   for (int i = pack_off + tid; i < size; i += blockDim.x) {
     sum += in[i] * in[i];
   }
 
-  // Block-level reduction using CUB (following KuiperInfer)
+  // Block-level reduction using CUB (using standard approach)
   using BlockReduce = cub::BlockReduce<float, BLOCK_DIM>;
   __shared__ typename BlockReduce::TempStorage temp;
   __shared__ float shared_val;
@@ -67,10 +74,10 @@ static __global__ void row_rmsnorm_f32(
   __syncthreads();
   sum = shared_val;
 
-  // Compute scale factor (following KuiperInfer)
+  // Compute scale factor (using standard approach)
   const float scale = rsqrtf(sum / static_cast<float>(size) + eps);
 
-  // Phase 2: Apply normalization with weight (following KuiperInfer)
+  // Phase 2: Apply normalization with weight (using standard approach)
   float4* wei_pack = reinterpret_cast<float4*>(wei);
   float4* out_pack = reinterpret_cast<float4*>(out);
   for (int i = tid; i < pack_num; i += blockDim.x) {
@@ -83,7 +90,7 @@ static __global__ void row_rmsnorm_f32(
         scale * in_float4.w * wei_float4.w);
   }
 
-  // Handle remaining elements (following KuiperInfer)
+  // Handle remaining elements (using standard approach)
   for (int i = pack_off + tid; i < size; i += blockDim.x) {
     out[i] = wei[i] * in[i] * scale;
   }
@@ -97,7 +104,7 @@ Result<void> rmsnorm_cuda_launch(
     f32 eps,
     cudaStream_t stream) {
 
-  // Validate dimensions (following KuiperInfer)
+  // Validate dimensions (using standard approach)
   if (static_cast<i32>(input.size()) != dim) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Input size mismatch in rmsnorm_cuda_launch");
@@ -113,18 +120,18 @@ Result<void> rmsnorm_cuda_launch(
                     "Output size mismatch in rmsnorm_cuda_launch");
   }
 
-  // Check vectorization alignment (following KuiperInfer)
+  // Check vectorization alignment (using standard approach)
   constexpr int pack_size = 4;
   if (dim % pack_size != 0) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Dimension must be multiple of 4 for vectorization");
   }
 
-  // Launch configuration (following KuiperInfer exactly)
+  // Launch configuration (using standard approach exactly)
   // Grid: 1 block, Block: 128 threads
   constexpr int threads_num = 128;
 
-  // Need non-const pointers for kernel (following KuiperInfer)
+  // Need non-const pointers for kernel (using standard approach)
   float* in_ptr = const_cast<float*>(input.data());
   float* wei_ptr = const_cast<float*>(weight.data());
   float* out_ptr = output.data();

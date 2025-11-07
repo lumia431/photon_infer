@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file continuous_batch_engine.hpp
  * @brief Continuous batching inference engine
@@ -14,9 +21,9 @@
 #include "photon/core/types.hpp"
 #include "photon/core/error.hpp"
 #include "photon/core/tensor.hpp"
-#include "photon/model/llama_model.hpp"
-#include "photon/model/tokenizer.hpp"
-#include "photon/model/kv_cache_manager.hpp"
+#include "photon/arch/llama_model.hpp"
+#include "photon/io/tokenizer.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
 #include "photon/scheduler/continuous_batch_scheduler.hpp"
 #include "photon/scheduler/inference_request.hpp"
 

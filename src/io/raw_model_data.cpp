@@ -1,4 +1,11 @@
-#include "photon/model/raw_model_data.hpp"
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
+#include "photon/io/raw_model_data.hpp"
 #include <sys/mman.h>
 #include <unistd.h>
 

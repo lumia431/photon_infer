@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file transformer_block.hpp
  * @brief Transformer block for LLaMA architecture
  * @version 0.1.0
  */
 
-#ifndef PHOTON_MODEL_TRANSFORMER_BLOCK_HPP
-#define PHOTON_MODEL_TRANSFORMER_BLOCK_HPP
 
 #include "photon/core/tensor.hpp"
 #include "photon/core/types.hpp"
@@ -17,36 +23,9 @@
 #include "photon/ops/mha.hpp"
 #include "photon/ops/add.hpp"
 #include "photon/ops/swiglu.hpp"
+#include "photon/arch/config.hpp"  // Import TransformerConfig
 
 namespace photon::model {
-
-/**
- * @struct TransformerConfig
- * @brief Configuration for LLaMA transformer model
- */
-struct TransformerConfig {
-  i32 vocab_size;    // Vocabulary size
-  i32 dim;           // Model dimension
-  i32 hidden_dim;    // FFN hidden dimension
-  i32 n_layers;      // Number of transformer blocks
-  i32 n_heads;       // Number of attention heads
-  i32 n_kv_heads;    // Number of KV heads (for GQA)
-  i32 head_size;     // Dimension per head
-  i32 seq_len;       // Maximum sequence length
-  f32 norm_eps;      // RMSNorm epsilon
-  DeviceType device = DeviceType::CPU;  // Device for computation
-
-  // Computed values
-  i32 kv_dim;        // KV dimension (n_kv_heads * head_size)
-  i32 kv_mul;        // Heads per KV head (n_heads / n_kv_heads)
-
-  TransformerConfig() = default;
-
-  void compute_derived() {
-    kv_dim = n_kv_heads * head_size;
-    kv_mul = n_heads / n_kv_heads;
-  }
-};
 
 /**
  * @class TransformerBlock
@@ -250,4 +229,3 @@ class TransformerBlock {
 
 }  // namespace photon::model
 
-#endif  // PHOTON_MODEL_TRANSFORMER_BLOCK_HPP

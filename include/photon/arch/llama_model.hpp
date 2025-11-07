@@ -1,13 +1,19 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file llama_model.hpp
  * @brief LLaMA language model implementation
  * @version 0.1.0
  */
 
-#ifndef PHOTON_MODEL_LLAMA_MODEL_HPP
-#define PHOTON_MODEL_LLAMA_MODEL_HPP
 
-#include "photon/model/transformer_block.hpp"
+#include "photon/arch/transformer_block.hpp"
 #include "photon/ops/embedding.hpp"
 #include "photon/ops/rmsnorm.hpp"
 #include "photon/ops/matmul.hpp"
@@ -234,4 +240,3 @@ Result<i32> argmax_sample(const Tensor& logits);
 
 }  // namespace photon::model
 
-#endif  // PHOTON_MODEL_LLAMA_MODEL_HPP

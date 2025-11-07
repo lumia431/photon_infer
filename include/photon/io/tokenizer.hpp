@@ -1,5 +1,11 @@
-#ifndef PHOTON_MODEL_TOKENIZER_HPP
-#define PHOTON_MODEL_TOKENIZER_HPP
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 
 #include "photon/core/error.hpp"
 #include "photon/core/types.hpp"
@@ -87,4 +93,3 @@ private:
 
 } // namespace photon::model
 
-#endif // PHOTON_MODEL_TOKENIZER_HPP

@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file embedding.hpp
  * @brief Embedding layer operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_EMBEDDING_HPP
-#define PHOTON_OPS_EMBEDDING_HPP
 
 #include <span>
 #include "operator.hpp"
@@ -173,4 +179,3 @@ static_assert(UnaryOperator<EmbeddingOp>, "EmbeddingOp must satisfy UnaryOperato
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_EMBEDDING_HPP

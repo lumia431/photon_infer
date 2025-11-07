@@ -1,14 +1,20 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file matmul_kernel.cuh
  * @brief CUDA matrix multiplication kernel interface
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/matmul_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_MATMUL_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_MATMUL_KERNEL_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -20,7 +26,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief Launch CUDA matrix-vector multiplication (GEMV) kernel
  *
- * Following KuiperInfer's design:
+ * Following standard design:
  * - Computes: output[M] = input[N] @ weight[M×N]^T
  * - Each block computes 1 output element
  * - Uses float4 vectorization
@@ -67,38 +73,5 @@ Result<void> matmul_gemm_cublas_launch(
     i32 N,
     cudaStream_t stream = nullptr);
 
-/**
- * @brief Launch batched quantized GEMM
- *
- * Batched version of GEMV with INT8 quantization.
- * Processes multiple sequences in parallel.
- *
- * @param input Input matrix [B × N]
- * @param weight_quant Quantized weight [M × N]
- * @param scales Scale factors for dequantization
- * @param group_size Quantization group size
- * @param output Output matrix [B × M]
- * @param batch_size Number of sequences
- * @param M Output dimension
- * @param N Input dimension
- * @param stream CUDA stream
- * @return Result indicating success or error
- */
-Result<void> matmul_gemm_quant_launch(
-    const f32* input,
-    usize input_size,
-    const i8* weight_quant,
-    usize weight_size,
-    const f32* scales,
-    usize scales_size,
-    i32 group_size,
-    f32* output,
-    usize output_size,
-    i32 batch_size,
-    i32 M,
-    i32 N,
-    cudaStream_t stream = nullptr);
-
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_MATMUL_KERNEL_CUH

@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file kv_cache_manager.hpp
  * @brief Simple KV Cache Manager for batched inference
@@ -7,8 +15,6 @@
  * for each sequence. Future versions will implement PagedAttention.
  */
 
-#ifndef PHOTON_MODEL_KV_CACHE_MANAGER_HPP
-#define PHOTON_MODEL_KV_CACHE_MANAGER_HPP
 
 #include "photon/core/tensor.hpp"
 #include "photon/core/error.hpp"
@@ -145,4 +151,3 @@ class KVCacheManager {
 
 }  // namespace photon::model
 
-#endif  // PHOTON_MODEL_KV_CACHE_MANAGER_HPP

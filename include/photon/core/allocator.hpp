@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file allocator.hpp
  * @brief Memory allocator abstraction for different devices
@@ -10,8 +18,6 @@
  * type safety and compile-time polymorphism.
  */
 
-#ifndef PHOTON_CORE_ALLOCATOR_HPP
-#define PHOTON_CORE_ALLOCATOR_HPP
 
 #include <cstdlib>
 #include <map>
@@ -154,9 +160,6 @@ static_assert(Allocator<CPUAllocator>, "CPUAllocator must satisfy Allocator conc
 /**
  * @struct CudaMemoryBuffer
  * @brief CUDA memory buffer descriptor for memory pooling
- *
- * Strictly follows KuiperInfer's implementation at:
- * demos/kuiper_llama/kuiper/include/base/alloc.h
  */
 struct CudaMemoryBuffer {
   void* data = nullptr;
@@ -174,10 +177,9 @@ struct CudaMemoryBuffer {
  * @brief Memory allocator for CUDA devices with memory pooling
  *
  * This allocator implements a memory pool mechanism to reduce frequent
- * cudaMalloc/cudaFree calls, strictly following KuiperInfer's design at:
- * demos/kuiper_llama/kuiper/source/base/alloc_cu.cpp
+ * cudaMalloc/cudaFree calls, strictly using standard approach's design at:
  *
- * Key features (from KuiperInfer):
+ * Key features:
  * - Separates big buffers (>1MB) and regular buffers (<=1MB)
  * - Reuses memory blocks marked as non-busy
  * - Automatically cleans up when idle memory exceeds threshold (1GB)
@@ -209,13 +211,13 @@ class CUDAAllocator {
  private:
   i32 device_id_ = 0;
 
-  // Memory pool for buffers > 1MB (following KuiperInfer)
+  // Memory pool for buffers > 1MB (using standard approach)
   mutable std::map<i32, std::vector<CudaMemoryBuffer>> big_buffers_map_;
 
-  // Memory pool for regular buffers <= 1MB (following KuiperInfer)
+  // Memory pool for regular buffers <= 1MB (using standard approach)
   mutable std::map<i32, std::vector<CudaMemoryBuffer>> cuda_buffers_map_;
 
-  // Track total size of non-busy buffers per device (following KuiperInfer)
+  // Track total size of non-busy buffers per device (using standard approach)
   mutable std::map<i32, usize> no_busy_cnt_;
 };
 
@@ -283,4 +285,3 @@ template <Allocator A>
 
 }  // namespace photon
 
-#endif  // PHOTON_CORE_ALLOCATOR_HPP

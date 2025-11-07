@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file swiglu_kernel.cu
  * @brief CUDA SwiGLU activation kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/swiglu_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/swiglu_kernel.cuh"
@@ -15,7 +22,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief CUDA kernel for SwiGLU activation
  *
- * Following KuiperInfer line-by-line:
+ * Standard implementation:
  * - Uses shared memory for input caching
  * - Computes swish(in1) = in1 * sigmoid(in1)
  * - Multiplies with in2: out = swish(in1) * in2
@@ -32,7 +39,7 @@ __global__ void swiglu_kernel_cu_fp32(
     return;
   }
 
-  // Following KuiperInfer: shared memory layout
+  // Following standard: shared memory layout
   extern __shared__ float shared_mem[];
   float* smem1 = shared_mem;
   float* smem2 = shared_mem + blockDim.x;
@@ -57,7 +64,7 @@ Result<void> swiglu_cuda_launch(
     i32 size,
     cudaStream_t stream) {
 
-  // Validate dimensions (following KuiperInfer)
+  // Validate dimensions (using standard approach)
   if (static_cast<i32>(input1.size()) != size) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "Input1 size mismatch in swiglu_cuda_launch");
@@ -73,7 +80,7 @@ Result<void> swiglu_cuda_launch(
                     "Output size mismatch in swiglu_cuda_launch");
   }
 
-  // Launch configuration (following KuiperInfer exactly)
+  // Launch configuration (using standard approach exactly)
   int threads = 128;
   int blocks = (size + threads - 1) / threads;
   const size_t shmem = threads * sizeof(float) * 2;

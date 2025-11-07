@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file quant.hpp
  * @brief Quantization utilities for int8 inference
@@ -15,8 +23,6 @@
  * - Modern C++20 features: concepts, ranges, constexpr
  */
 
-#ifndef PHOTON_CORE_QUANT_HPP
-#define PHOTON_CORE_QUANT_HPP
 
 #include <algorithm>
 #include <cmath>
@@ -257,4 +263,3 @@ struct QuantStats {
 
 }  // namespace photon
 
-#endif  // PHOTON_CORE_QUANT_HPP

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file sampling_kernel.cu
  * @brief GPU kernels for token sampling (argmax, top-k, etc.)
@@ -28,9 +35,9 @@ namespace photon::kernels::cuda {
  */
 __global__ void argmax_sampling_kernel(
     const float* __restrict__ logits,
-    int32_t* __restrict__ output,
-    int32_t batch_size,
-    int32_t vocab_size) {
+    i32* __restrict__ output,
+    i32 batch_size,
+    i32 vocab_size) {
 
   const int seq_idx = blockIdx.x;
   if (seq_idx >= batch_size) return;
@@ -39,7 +46,7 @@ __global__ void argmax_sampling_kernel(
 
   // Shared memory for block-level reduction (max 32 warps for up to 1024 threads)
   __shared__ float shared_max_val[32];
-  __shared__ int32_t shared_max_idx[32];
+  __shared__ i32 shared_max_idx[32];
 
   const int tid = threadIdx.x;
   const int warp_id = tid / 32;
@@ -48,7 +55,7 @@ __global__ void argmax_sampling_kernel(
 
   // Local max tracking
   float local_max = -INFINITY;
-  int32_t local_idx = 0;
+  i32 local_idx = 0;
 
   // Block-strided loop: each block processes CHUNK_SIZE elements at a time
   // This improves L1 cache hit rate vs strided access
@@ -92,7 +99,7 @@ __global__ void argmax_sampling_kernel(
   #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
     float other_val = __shfl_down_sync(0xffffffff, local_max, offset);
-    int32_t other_idx = __shfl_down_sync(0xffffffff, local_idx, offset);
+    i32 other_idx = __shfl_down_sync(0xffffffff, local_idx, offset);
     if (other_val > local_max) {
       local_max = other_val;
       local_idx = other_idx;
@@ -111,12 +118,12 @@ __global__ void argmax_sampling_kernel(
   if (warp_id == 0) {
     int num_warps = (num_threads + 31) / 32;
     float final_max = (tid < num_warps) ? shared_max_val[tid] : -INFINITY;
-    int32_t final_idx = (tid < num_warps) ? shared_max_idx[tid] : 0;
+    i32 final_idx = (tid < num_warps) ? shared_max_idx[tid] : 0;
 
     #pragma unroll
     for (int offset = 16; offset > 0; offset >>= 1) {
       float other_val = __shfl_down_sync(0xffffffff, final_max, offset);
-      int32_t other_idx = __shfl_down_sync(0xffffffff, final_idx, offset);
+      i32 other_idx = __shfl_down_sync(0xffffffff, final_idx, offset);
       if (other_val > final_max) {
         final_max = other_val;
         final_idx = other_idx;
@@ -132,9 +139,9 @@ __global__ void argmax_sampling_kernel(
 
 Result<void> argmax_sampling_launch(
     const float* logits,
-    int32_t* output,
-    int32_t batch_size,
-    int32_t vocab_size,
+    i32* output,
+    i32 batch_size,
+    i32 vocab_size,
     cudaStream_t stream) {
 
   if (!logits || !output) {

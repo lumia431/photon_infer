@@ -1,4 +1,11 @@
-#include "photon/model/tokenizer.hpp"
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
+#include "photon/io/tokenizer.hpp"
 #include <algorithm>
 #include <array>
 #include <fstream>

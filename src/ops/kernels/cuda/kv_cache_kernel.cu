@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file kv_cache_kernel.cu
  * @brief GPU kernels for efficient KV cache operations
@@ -35,10 +42,10 @@ __global__ void batched_kv_write_kernel(
     const float* __restrict__ v_batch,
     float* __restrict__ key_cache,
     float* __restrict__ value_cache,
-    const int32_t* __restrict__ cache_offsets,
-    const int32_t* __restrict__ positions,
-    int32_t batch_size,
-    int32_t kv_dim) {
+    const i32* __restrict__ cache_offsets,
+    const i32* __restrict__ positions,
+    i32 batch_size,
+    i32 kv_dim) {
 
   const int seq_idx = blockIdx.x;
   if (seq_idx >= batch_size) return;
@@ -47,9 +54,9 @@ __global__ void batched_kv_write_kernel(
   const int num_threads = blockDim.x;
 
   // Calculate cache write position for this sequence
-  const int32_t cache_offset = cache_offsets[seq_idx];
-  const int32_t seq_pos = positions[seq_idx];
-  const int32_t cache_idx = cache_offset + seq_pos;
+  const i32 cache_offset = cache_offsets[seq_idx];
+  const i32 seq_pos = positions[seq_idx];
+  const i32 cache_idx = cache_offset + seq_pos;
 
   // Source pointers (in k_batch/v_batch)
   const float* k_src = k_batch + seq_idx * kv_dim;
@@ -72,10 +79,10 @@ Result<void> batched_kv_write_launch(
     const float* v_batch,
     float* key_cache,
     float* value_cache,
-    const int32_t* cache_offsets,
-    const int32_t* positions,
-    int32_t batch_size,
-    int32_t kv_dim,
+    const i32* cache_offsets,
+    const i32* positions,
+    i32 batch_size,
+    i32 kv_dim,
     cudaStream_t stream) {
 
   if (!k_batch || !v_batch || !key_cache || !value_cache ||

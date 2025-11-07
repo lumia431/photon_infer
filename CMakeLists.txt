@@ -143,18 +143,6 @@ endif()
 # Demo executable
 add_subdirectory(demo)
 
-# Tools
-add_executable(quantize_model tools/quantize_model.cpp)
-target_link_libraries(quantize_model
-  PRIVATE
-    photon_core
-    glog::glog
-)
-target_include_directories(quantize_model
-  PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-)
-
 # Examples directory removed as per user request
 # if(PHOTON_BUILD_EXAMPLES)
 #   add_subdirectory(examples)

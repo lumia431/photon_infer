@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file batched_mha_kernel.cuh
  * @brief Optimized Batched Multi-Head Attention CUDA kernel
@@ -16,8 +24,6 @@
  * - 1.3-1.8x speedup for sequences > 256 tokens (with partitioning)
  */
 
-#ifndef PHOTON_OPS_KERNELS_CUDA_BATCHED_MHA_KERNEL_CUH
-#define PHOTON_OPS_KERNELS_CUDA_BATCHED_MHA_KERNEL_CUH
 
 #include <cuda_runtime.h>
 #include <span>
@@ -201,4 +207,3 @@ Result<void> batched_mha_paged_launch(
 
 }  // namespace photon::kernels::cuda
 
-#endif  // PHOTON_OPS_KERNELS_CUDA_BATCHED_MHA_KERNEL_CUH

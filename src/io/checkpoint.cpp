@@ -1,11 +1,18 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file checkpoint.cpp
  * @brief Checkpoint loader implementation
  * @version 0.1.0
  */
 
-#include "photon/model/checkpoint.hpp"
-#include "photon/model/llama_model.hpp"
+#include "photon/io/checkpoint.hpp"
+#include "photon/arch/llama_model.hpp"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -110,37 +117,18 @@ Result<void> CheckpointLoader::load_weights(LLaMAModel& model) const {
   config.norm_eps = 1e-5f;  // Standard epsilon for RMSNorm
   config.compute_derived();
 
-  usize offset = 0;  // Current offset in float32 elements
+  usize offset = 0;
 
-  // ==== KuiperInfer weight order ====
+  // Weight loading order:
   // 1. Embedding: [vocab_size × dim]
   // 2. Attention RMSNorm: [dim] × n_layers
-  // 3. wq: [dim × dim] × n_layers
-  // 4. wk: [kv_dim × dim] × n_layers
-  // 5. wv: [kv_dim × dim] × n_layers
-  // 6. wo: [dim × dim] × n_layers
-  // 7. FFN RMSNorm: [dim] × n_layers
-  // 8. w1: [hidden_dim × dim] × n_layers
-  // 9. w2: [dim × hidden_dim] × n_layers
-  // 10. w3: [hidden_dim × dim] × n_layers
-  // 11. Final RMSNorm: [dim]
-  // 12. Classifier: [vocab_size × dim] (if not shared)
+  // 3. wq, wk, wv, wo weights × n_layers
+  // 4. FFN RMSNorm: [dim] × n_layers
+  // 5. w1, w2, w3 weights × n_layers
+  // 6. Final RMSNorm: [dim]
+  // 7. Classifier: [vocab_size × dim] (if not shared)
 
-  // Load weights in the correct KuiperInfer order:
-  // 1. Embedding: [vocab_size × dim]
-  // 2. Attention RMSNorm: [dim] × n_layers
-  // 3. wq: [dim × dim] × n_layers
-  // 4. wk: [kv_dim × dim] × n_layers
-  // 5. wv: [kv_dim × dim] × n_layers
-  // 6. wo: [dim × dim] × n_layers
-  // 7. FFN RMSNorm: [dim] × n_layers
-  // 8. w1: [hidden_dim × dim] × n_layers
-  // 9. w2: [dim × hidden_dim] × n_layers
-  // 10. w3: [hidden_dim × dim] × n_layers
-  // 11. Final RMSNorm: [dim]
-  // 12. Classifier: [vocab_size × dim] (if not shared)
-
-  // 1. Load token embedding: [vocab_size × dim]
+  // 1. Load token embedding
   {
     usize emb_size = static_cast<usize>(config.vocab_size) * static_cast<usize>(config.dim);
     auto emb_tensor = Tensor::create({config.vocab_size, config.dim}, DataType::Float32, DeviceType::CPU);
@@ -300,9 +288,7 @@ Result<void> CheckpointLoader::load_weights(LLaMAModel& model) const {
     if (!result) return result;
   }
 
-  // NOTE: freq_cis is NOT in the checkpoint file!
-  // KuiperInfer computes RoPE cache at runtime, not from the file.
-  // So we don't skip any bytes here.
+  // NOTE: RoPE frequencies are computed at runtime, not loaded from file
 
   // Classifier: check if separate weights exist
   usize bytes_remaining = file_size_ - sizeof(CheckpointHeader) - (offset * sizeof(f32));

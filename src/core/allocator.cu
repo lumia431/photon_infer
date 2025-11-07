@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file allocator.cu
  * @brief CUDA memory allocator implementation with memory pooling
@@ -5,10 +12,10 @@
  * @version 0.1.0
  * @date 2025-01-15
  *
- * This implementation strictly follows KuiperInfer's memory pool design at:
- * demos/kuiper_llama/kuiper/source/base/alloc_cu.cpp
+ * This implementation strictly follows standard memory pool design at:
+ * demos/memory pool design
  *
- * Key features (from KuiperInfer):
+ * Key features (from standard):
  * - Separates big buffers (>1MB) and regular buffers (<=1MB)
  * - Reuses memory blocks to reduce cudaMalloc/cudaFree overhead
  * - Automatic cleanup when idle memory exceeds threshold (1GB)
@@ -23,10 +30,10 @@
 
 namespace photon {
 
-// Following KuiperInfer's threshold: 1MB for big buffers
+// Using standard threshold: 1MB for big buffers
 constexpr usize kBigBufferThreshold = 1024 * 1024;
 
-// Following KuiperInfer's cleanup threshold: 1GB
+// Using standard cleanup threshold: 1GB
 constexpr usize kCleanupThreshold = 1024UL * 1024UL * 1024UL;
 
 Result<void*> CUDAAllocator::allocate(usize size, [[maybe_unused]] usize alignment) {
@@ -35,7 +42,7 @@ Result<void*> CUDAAllocator::allocate(usize size, [[maybe_unused]] usize alignme
                       "Cannot allocate zero bytes");
   }
 
-  // Get current device ID (following KuiperInfer)
+  // Get current device ID (using standard)
   i32 id = -1;
   cudaError_t state = cudaGetDevice(&id);
   if (state != cudaSuccess) {
@@ -43,7 +50,7 @@ Result<void*> CUDAAllocator::allocate(usize size, [[maybe_unused]] usize alignme
     return Err<void*>(ErrorCode::CudaError, "cudaGetDevice failed");
   }
 
-  // Big buffer path (>1MB) - following KuiperInfer line-by-line
+  // Big buffer path (>1MB) - using standard line-by-line
   if (size > kBigBufferThreshold) {
     auto& big_buffers = big_buffers_map_[id];
     i32 sel_id = -1;
@@ -80,7 +87,7 @@ Result<void*> CUDAAllocator::allocate(usize size, [[maybe_unused]] usize alignme
     return Ok(ptr);
   }
 
-  // Regular buffer path (<=1MB) - following KuiperInfer line-by-line
+  // Regular buffer path (<=1MB) - using standard line-by-line
   auto& cuda_buffers = cuda_buffers_map_[id];
 
   // Find first fit buffer
@@ -106,7 +113,7 @@ Result<void*> CUDAAllocator::allocate(usize size, [[maybe_unused]] usize alignme
 }
 
 Result<void> CUDAAllocator::deallocate(void* ptr, [[maybe_unused]] usize size) {
-  // Following KuiperInfer: silently return for null pointer
+  // Using standard: silently return for null pointer
   if (!ptr) {
     return Ok();
   }
@@ -117,7 +124,7 @@ Result<void> CUDAAllocator::deallocate(void* ptr, [[maybe_unused]] usize size) {
 
   cudaError_t state = cudaSuccess;
 
-  // Cleanup phase: free idle memory if threshold exceeded (following KuiperInfer line-by-line)
+  // Cleanup phase: free idle memory if threshold exceeded (using standard line-by-line)
   for (auto& it : cuda_buffers_map_) {
     if (no_busy_cnt_[it.first] > kCleanupThreshold) {
       auto& cuda_buffers = it.second;
@@ -142,7 +149,7 @@ Result<void> CUDAAllocator::deallocate(void* ptr, [[maybe_unused]] usize size) {
     }
   }
 
-  // Mark buffer as non-busy (following KuiperInfer line-by-line)
+  // Mark buffer as non-busy (using standard line-by-line)
   for (auto& it : cuda_buffers_map_) {
     auto& cuda_buffers = it.second;
     for (usize i = 0; i < cuda_buffers.size(); ++i) {
@@ -163,7 +170,7 @@ Result<void> CUDAAllocator::deallocate(void* ptr, [[maybe_unused]] usize size) {
     }
   }
 
-  // Buffer not found in pool, free directly (following KuiperInfer)
+  // Buffer not found in pool, free directly (using standard)
   state = cudaFree(ptr);
   if (state != cudaSuccess) {
     LOG(ERROR) << "Error: CUDA error when release memory on device";

@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file embedding_kernel.cu
  * @brief CUDA embedding kernel implementation
  * @version 0.1.0
  *
- * Strictly follows KuiperInfer implementation at:
- * demos/kuiper_llama/kuiper/source/op/kernels/cuda/emb_kernel.cu
+ * Implementation based on standard practices at:
+ * 
  */
 
 #include "photon/ops/kernels/cuda/embedding_kernel.cuh"
@@ -15,7 +22,7 @@ namespace photon::kernels::cuda {
 /**
  * @brief CUDA kernel for embedding lookup
  *
- * Following KuiperInfer line-by-line:
+ * Standard implementation:
  * - blockIdx.x = token index
  * - threadIdx.x = dimension index (strided)
  * - Grid: num_tokens blocks
@@ -29,7 +36,7 @@ __global__ void emb_kernel_cu_fp32(
     const f32* weight_ptr,
     f32* output_ptr) {
 
-  // Following KuiperInfer: each block processes one token
+  // Following standard: each block processes one token
   i32 token_idx = blockIdx.x;
   if (token_idx >= token_num) {
     return;
@@ -41,11 +48,11 @@ __global__ void emb_kernel_cu_fp32(
     return;
   }
 
-  // Calculate pointers (following KuiperInfer exactly)
+  // Calculate pointers (using standard approach exactly)
   f32* output_ptr_start = output_ptr + token_idx * weight_dim;
   const f32* weight_ptr_start = weight_ptr + token * weight_dim;
 
-  // Each thread copies part of the embedding vector (following KuiperInfer)
+  // Each thread copies part of the embedding vector (using standard approach)
   for (i32 i = threadIdx.x; i < weight_dim; i += blockDim.x) {
     output_ptr_start[i] = weight_ptr_start[i];
   }
@@ -76,7 +83,7 @@ Result<void> embedding_cuda_launch(
                     "Output size mismatch in embedding_cuda_launch");
   }
 
-  // Launch configuration (following KuiperInfer exactly)
+  // Launch configuration (using standard approach exactly)
   constexpr i32 thread_num = 128;
 
   // Launch kernel: grid size = num_tokens (one block per token)

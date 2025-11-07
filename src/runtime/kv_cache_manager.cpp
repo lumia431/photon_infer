@@ -1,9 +1,16 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file kv_cache_manager.cpp
  * @brief Implementation of KV Cache Manager
  */
 
-#include "photon/model/kv_cache_manager.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
 #include <glog/logging.h>
 
 namespace photon::model {

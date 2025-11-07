@@ -1,10 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
- * @file matmul_kernel_quant_v2.cuh
- * @brief Optimized INT8 quantized GEMM kernel (v2) - header
+ * @file matmul_gemm_quant.cuh
+ * @brief Optimized INT8 quantized GEMM kernel - header
  * @version 2.0.0
  */
 
-#pragma once
 
 #include "photon/core/types.hpp"
 #include "photon/core/error.hpp"
@@ -16,13 +23,11 @@ namespace photon::kernels::cuda {
 /**
  * @brief Optimized batched quantized GEMM: output[B×K] = input[B×M] @ weight[K×M]^T
  *
- * Optimizations over v1:
+ * Optimizations:
  * - Vectorized memory access (4x INT8 weights per load)
  * - Shared memory caching for input vectors
- * - Better thread block configuration (256 threads)
+ * - Optimized thread block configuration (256 threads)
  * - Reduced global memory accesses
- *
- * Expected performance: 1.5-2.5x faster than v1
  *
  * @param input_ptr Input matrix [B × M] (FP32)
  * @param input_size Size of input
@@ -39,7 +44,7 @@ namespace photon::kernels::cuda {
  * @param stream CUDA stream (nullptr for default stream)
  * @return Result indicating success or error
  */
-Result<void> matmul_gemm_quant_v2_launch(
+Result<void> matmul_gemm_quant_launch(
     const f32* input_ptr,
     usize input_size,
     const i8* weight_ptr,

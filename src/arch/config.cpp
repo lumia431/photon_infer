@@ -1,19 +1,26 @@
-#include "photon/model/config.hpp"
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
+#include "photon/arch/config.hpp"
 #include <cstdlib>
 
 namespace photon::model {
 
 TransformerConfig TransformerConfig::from_model_config(
     const ModelConfig& config,
-    int32_t tokenizer_vocab_size) {
+    i32 tokenizer_vocab_size) {
   TransformerConfig tf_config;
 
   // Copy base configuration
   tf_config.dim = config.dim;
   tf_config.hidden_dim = config.hidden_dim;
-  tf_config.layer_num = config.layer_num;
-  tf_config.head_num = config.head_num;
-  tf_config.kv_head_num = config.kv_head_num;
+  tf_config.n_layers = config.layer_num;
+  tf_config.n_heads = config.head_num;
+  tf_config.n_kv_heads = config.kv_head_num;
   tf_config.seq_len = config.seq_len;
 
   // Compute derived dimensions

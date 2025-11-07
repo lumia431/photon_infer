@@ -1,5 +1,11 @@
-#ifndef PHOTON_OPS_MHA_HPP
-#define PHOTON_OPS_MHA_HPP
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 
 #include "operator.hpp"
 #include "photon/core/tensor.hpp"
@@ -98,4 +104,3 @@ static_assert(Operator<MHAOp>, "MHAOp must satisfy Operator concept");
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_MHA_HPP

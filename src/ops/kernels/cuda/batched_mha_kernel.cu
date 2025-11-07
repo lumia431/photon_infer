@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file batched_mha_kernel.cu
  * @brief Optimized Batched Multi-Head Attention CUDA implementation
@@ -94,18 +101,18 @@ __device__ void softmax_inplace(float* __restrict__ x, int size) {
  */
 template <int BLOCK_SIZE, int HEAD_SIZE>
 __global__ void batched_mha_paged_kernel(
-    const int32_t* __restrict__ positions,      // [batch_size]
-    const int32_t* __restrict__ cache_offsets,  // [batch_size] - NEW!
+    const i32* __restrict__ positions,      // [batch_size]
+    const i32* __restrict__ cache_offsets,  // [batch_size] - NEW!
     const float* __restrict__ query,            // [batch_size, num_heads, head_size]
     float* __restrict__ score,                  // [batch_size, num_heads, seq_len]
     float* __restrict__ output,                 // [batch_size, num_heads, head_size]
     const float* __restrict__ key_cache,        // [total_cache_size, kv_dim] - paged!
     const float* __restrict__ value_cache,      // [total_cache_size, kv_dim] - paged!
-    int32_t seq_len,
-    int32_t kv_dim,
-    int32_t kv_mul,
-    int32_t num_heads,
-    int32_t head_size) {
+    i32 seq_len,
+    i32 kv_dim,
+    i32 kv_mul,
+    i32 num_heads,
+    i32 head_size) {
 
   const int head_idx = blockIdx.x;
   const int seq_idx = blockIdx.y;
@@ -201,18 +208,18 @@ __global__ void batched_mha_paged_kernel(
  */
 template <int BLOCK_SIZE, int HEAD_SIZE>
 __global__ void batched_multi_head_attention_kernel(
-    const int32_t* __restrict__ positions,  // [batch_size]
+    const i32* __restrict__ positions,  // [batch_size]
     const float* __restrict__ query,        // [batch_size, num_heads, head_size]
     float* __restrict__ score,              // [batch_size, num_heads, seq_len]
     float* __restrict__ output,             // [batch_size, num_heads, head_size]
     const float* __restrict__ key_cache,    // [num_layers, seq_len, kv_dim]
     const float* __restrict__ value_cache,  // [num_layers, seq_len, kv_dim]
-    int32_t seq_len,
-    int32_t kv_dim,
-    int32_t kv_mul,
-    int32_t num_heads,
-    int32_t head_size,
-    int32_t layer_offset) {
+    i32 seq_len,
+    i32 kv_dim,
+    i32 kv_mul,
+    i32 num_heads,
+    i32 head_size,
+    i32 layer_offset) {
 
   const int head_idx = blockIdx.x;
   const int seq_idx = blockIdx.y;
@@ -331,19 +338,19 @@ __global__ void batched_multi_head_attention_kernel(
  */
 template <int BLOCK_SIZE, int HEAD_SIZE, int PARTITION_SIZE = 512>
 __global__ void partitioned_mha_kernel(
-    const int32_t* __restrict__ positions,       // [batch_size]
+    const i32* __restrict__ positions,       // [batch_size]
     const float* __restrict__ query,             // [batch_size, num_heads, head_size]
     float* __restrict__ partial_max,             // [batch_size, num_heads, num_partitions]
     float* __restrict__ partial_sum,             // [batch_size, num_heads, num_partitions]
     float* __restrict__ partial_output,          // [batch_size, num_heads, num_partitions, head_size]
     const float* __restrict__ key_cache,         // [num_layers, seq_len, kv_dim]
     const float* __restrict__ value_cache,       // [num_layers, seq_len, kv_dim]
-    int32_t seq_len,
-    int32_t kv_dim,
-    int32_t kv_mul,
-    int32_t num_heads,
-    int32_t head_size,
-    int32_t layer_offset) {
+    i32 seq_len,
+    i32 kv_dim,
+    i32 kv_mul,
+    i32 num_heads,
+    i32 head_size,
+    i32 layer_offset) {
 
   const int head_idx = blockIdx.x;
   const int seq_idx = blockIdx.y;
@@ -507,9 +514,9 @@ __global__ void attention_reduce_kernel(
     const float* __restrict__ partial_max,       // [batch_size, num_heads, num_partitions]
     const float* __restrict__ partial_sum,       // [batch_size, num_heads, num_partitions]
     const float* __restrict__ partial_output,    // [batch_size, num_heads, num_partitions, head_size]
-    int32_t num_partitions,
-    int32_t num_heads,
-    int32_t head_size) {
+    i32 num_partitions,
+    i32 num_heads,
+    i32 head_size) {
 
   const int head_idx = blockIdx.x;
   const int seq_idx = blockIdx.y;
@@ -592,7 +599,7 @@ Result<void> partitioned_mha_cuda_launch(
   constexpr int PARTITION_SIZE = 512;
 
   // Calculate layer offset
-  const int32_t layer_offset = layer_index * seq_len * kv_dim;
+  const i32 layer_offset = layer_index * seq_len * kv_dim;
 
   // Determine max position across batch to calculate partition count
   i32 max_pos = 0;
@@ -763,7 +770,7 @@ Result<void> batched_mha_cuda_launch(
     cudaStream_t stream) {
 
   // Calculate layer offset
-  const int32_t layer_offset = layer_index * seq_len * kv_dim;
+  const i32 layer_offset = layer_index * seq_len * kv_dim;
 
   // ====== Optimization 3: Batch-level parallelization ======
   // Grid: (num_heads, batch_size) ← Key difference!

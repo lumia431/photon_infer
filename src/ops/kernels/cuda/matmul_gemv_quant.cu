@@ -1,6 +1,13 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
- * @file matmul_kernel_quant.cu
- * @brief CUDA kernels for quantized (int8) matrix multiplication
+ * @file matmul_gemv_quant.cu
+ * @brief CUDA kernels for quantized (int8) matrix-vector multiplication (GEMV)
  * @version 0.1.0
  *
  * This file implements int8 quantized matrix-vector multiplication with
@@ -10,7 +17,6 @@
  * - int8 weights with float32 scales (per-group)
  * - Dynamic dequantization during computation
  * - Optimized using CUB block-level primitives
- * - Inspired by KuiperInfer's implementation
  */
 
 #include <cuda_runtime.h>
@@ -181,7 +187,6 @@ Result<void> matmul_gemv_quant_launch(
   }
 
   // Kernel configuration
-  // Following KuiperInfer: 128 threads per block, 1 row per block
   constexpr int THREADS = 128;
   constexpr int ROWS_PER_BLOCK = 1;
 

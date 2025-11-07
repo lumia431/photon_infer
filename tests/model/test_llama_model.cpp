@@ -4,8 +4,8 @@
  */
 
 #include <gtest/gtest.h>
-#include <photon/model/llama_model.hpp>
-#include <photon/model/transformer_block.hpp>
+#include <photon/arch/llama_model.hpp>
+#include <photon/arch/transformer_block.hpp>
 #include <random>
 
 using namespace photon;
