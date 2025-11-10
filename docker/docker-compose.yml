@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  photon_infer:
+    image: photon_infer:latest
+    container_name: photon_infer
+    runtime: nvidia
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+    volumes:
+      - ${MODEL_DIR:-~/.llama/checkpoints}:/models:ro
+      - ./results:/app/results
+
+    working_dir: /app
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Development container with source mounted
+  photon_infer-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: photon_infer-dev
+    runtime: nvidia
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+    volumes:
+      - .:/workspace/photon_infer
+      - ${MODEL_DIR:-~/.llama/checkpoints}:/models:ro
+      - ./results:/app/results
+
+    working_dir: /workspace/photon_infer
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
