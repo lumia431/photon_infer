@@ -65,67 +65,6 @@ __global__ void rope_kernel_cu_fp32(
   rope_calc(fcr, fci, const_cast<float*>(input_k), idx);
 }
 
-/**
- * @brief CUDA kernel for sin/cos cache precomputation
- * Standard implementation
- */
-__global__ void sin_cos_calc(
-    int head_size,
-    int max_seq_len,
-    float* sin_cache,
-    float* cos_cache) {
-
-  int idx = threadIdx.x + blockDim.x * blockIdx.x;
-  int head_dim = idx % head_size;
-
-  for (int pos = 0; pos < max_seq_len; ++pos) {
-    float freq = 1.0f / powf(10000.0f,
-                            static_cast<float>(head_dim) / static_cast<float>(head_size));
-    float val = static_cast<float>(pos) * freq;
-    float fcr = cosf(val);
-    float fci = sinf(val);
-    *(sin_cache + pos * head_size + head_dim) = fci;
-    *(cos_cache + pos * head_size + head_dim) = fcr;
-  }
-}
-
-Result<void> rope_precompute_cuda(
-    std::span<f32> sin_cache,
-    std::span<f32> cos_cache,
-    i32 head_size,
-    i32 max_seq_len,
-    cudaStream_t stream) {
-
-  // Validate inputs
-  if (static_cast<i32>(sin_cache.size()) != max_seq_len * head_size) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Sin cache size mismatch in rope_precompute_cuda");
-  }
-
-  if (static_cast<i32>(cos_cache.size()) != max_seq_len * head_size) {
-    return Err<void>(ErrorCode::InvalidArgument,
-                    "Cos cache size mismatch in rope_precompute_cuda");
-  }
-
-  // Launch configuration (using standard approach)
-  int threads = head_size;
-  if (stream) {
-    sin_cos_calc<<<1, threads, 0, stream>>>(
-        head_size, max_seq_len, sin_cache.data(), cos_cache.data());
-  } else {
-    sin_cos_calc<<<1, threads>>>(
-        head_size, max_seq_len, sin_cache.data(), cos_cache.data());
-  }
-
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    LOG(ERROR) << "CUDA rope precompute kernel launch failed: " << cudaGetErrorString(err);
-    return Err<void>(ErrorCode::CudaError,
-                    std::string("CUDA rope precompute failed: ") + cudaGetErrorString(err));
-  }
-
-  return Ok();
-}
 
 Result<void> rope_cuda_launch(
     std::span<f32> q,

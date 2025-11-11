@@ -48,33 +48,6 @@ Result<void> matmul_gemv_quant_launch(
     i32 K,
     cudaStream_t stream = nullptr);
 
-/**
- * @brief Launch batched quantized GEMM
- *
- * Computes: output[B×K] = input[B×M] @ weight_int8[K×M]^T
- * Uses warp-level parallelism for efficient batched computation.
- *
- * @param input Input matrix [B × M] (float32)
- * @param weight_quant Quantized weights [K × M] (int8)
- * @param scales Per-group scale factors
- * @param group_size Quantization group size
- * @param output Output matrix [B × K] (float32)
- * @param batch_size Number of sequences (B)
- * @param M Input dimension
- * @param K Output dimension
- * @param stream CUDA stream
- * @return Result indicating success or error
- */
-Result<void> matmul_gemm_quant_batched_launch(
-    const f32* input,
-    const i8* weight_quant,
-    const f32* scales,
-    i32 group_size,
-    f32* output,
-    i32 batch_size,
-    i32 M,
-    i32 K,
-    cudaStream_t stream = nullptr);
 
 }  // namespace photon::kernels::cuda
 

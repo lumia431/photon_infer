@@ -11,13 +11,14 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     git \
     wget \
+    curl \
     ninja-build \
     pkg-config \
     libgtest-dev \
     libgmock-dev \
-    libeigen3-dev \
     libgoogle-glog-dev \
     libgflags-dev \
+    libssl-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -42,14 +43,19 @@ COPY . /workspace/photon_infer
 
 # Build PhotonInfer
 WORKDIR /workspace/photon_infer
-RUN mkdir -p build && cd build && \
-    cmake -G Ninja \
+RUN rm -rf build && mkdir -p build && cd build && \
+    cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DPHOTON_BUILD_CUDA=ON \
     -DPHOTON_BUILD_TESTS=OFF \
+    -DPHOTON_USE_EIGEN=OFF \
     -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89" \
     .. && \
-    ninja -j$(nproc)
+    make -j$(nproc)
+
+# Build photon_web_server
+WORKDIR /workspace/photon_infer/build
+RUN make photon_web_server -j$(nproc)
 
 # Stage 2: Runtime stage
 FROM nvidia/cuda:12.5.0-runtime-ubuntu22.04
@@ -58,9 +64,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    libeigen3-dev \
     libgoogle-glog0v5 \
     libgflags2.2 \
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
@@ -73,6 +80,7 @@ WORKDIR /app
 # Copy built binaries and libraries from builder
 COPY --from=builder /workspace/photon_infer/build/bin /app/bin
 COPY --from=builder /workspace/photon_infer/build/lib /app/lib
+COPY --from=builder /workspace/photon_infer/web/static /app/web/static
 
 # Set library path
 ENV LD_LIBRARY_PATH=/app/lib:${LD_LIBRARY_PATH}
@@ -80,7 +88,16 @@ ENV LD_LIBRARY_PATH=/app/lib:${LD_LIBRARY_PATH}
 # Create directories
 RUN mkdir -p /models /app/results
 
-CMD ["/bin/bash"]
+# Download model files from OSS during build
+COPY model/model.bin /models/model.bin
+COPY model/tokenizer.model /models/tokenizer.model
+
+# Copy startup script
+COPY docker/startup.sh /app/startup.sh
+RUN chmod +x /app/startup.sh
+
+# Start web server automatically
+CMD ["/app/startup.sh"]
 
 LABEL maintainer="Lummy"
 LABEL description="PhotonInfer - High-Performance LLM Inference Engine"

@@ -77,6 +77,7 @@ Result<void> AddOp::forward(const Tensor& input1, const Tensor& input2, Tensor& 
   // Dispatch to appropriate kernel based on device
   if (device_ == DeviceType::CPU) {
     if (input1.dtype() == DataType::Float32) {
+#ifdef PHOTON_USE_EIGEN
       auto input1_map = input1.vector_map<f32>();
       auto input2_map = input2.vector_map<f32>();
       auto output_map = output.vector_map<f32>();
@@ -84,16 +85,27 @@ Result<void> AddOp::forward(const Tensor& input1, const Tensor& input2, Tensor& 
       std::span<const f32> input1_span(input1_map.data(), input1_map.size());
       std::span<const f32> input2_span(input2_map.data(), input2_map.size());
       std::span<f32> output_span(output_map.data(), output_map.size());
+#else
+      std::span<const f32> input1_span(input1.ptr<f32>(), input1.size());
+      std::span<const f32> input2_span(input2.ptr<f32>(), input2.size());
+      std::span<f32> output_span(output.ptr<f32>(), output.size());
+#endif
 
       if (use_naive_) {
         kernels::add_naive<f32>(input1_span, input2_span, output_span, len);
       } else {
+#ifdef PHOTON_USE_EIGEN
         auto result = kernels::add_eigen<f32>(input1_span, input2_span, output_span, len);
         if (!result) {
           return result;
         }
+#else
+        return Err<void>(ErrorCode::NotImplemented,
+                        "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
       }
     } else if (input1.dtype() == DataType::Float64) {
+#ifdef PHOTON_USE_EIGEN
       auto input1_map = input1.vector_map<f64>();
       auto input2_map = input2.vector_map<f64>();
       auto output_map = output.vector_map<f64>();
@@ -101,14 +113,24 @@ Result<void> AddOp::forward(const Tensor& input1, const Tensor& input2, Tensor& 
       std::span<const f64> input1_span(input1_map.data(), input1_map.size());
       std::span<const f64> input2_span(input2_map.data(), input2_map.size());
       std::span<f64> output_span(output_map.data(), output_map.size());
+#else
+      std::span<const f64> input1_span(input1.ptr<f64>(), input1.size());
+      std::span<const f64> input2_span(input2.ptr<f64>(), input2.size());
+      std::span<f64> output_span(output.ptr<f64>(), output.size());
+#endif
 
       if (use_naive_) {
         kernels::add_naive<f64>(input1_span, input2_span, output_span, len);
       } else {
+#ifdef PHOTON_USE_EIGEN
         auto result = kernels::add_eigen<f64>(input1_span, input2_span, output_span, len);
         if (!result) {
           return result;
         }
+#else
+        return Err<void>(ErrorCode::NotImplemented,
+                        "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
       }
     } else {
       return Err<void>(ErrorCode::InvalidArgument,

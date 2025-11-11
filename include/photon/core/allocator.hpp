@@ -152,76 +152,29 @@ class CPUAllocator {
 static_assert(Allocator<CPUAllocator>, "CPUAllocator must satisfy Allocator concept");
 
 // ============================================================================
-// CUDA Allocator (Forward Declaration)
+// CUDA Allocator (Now using ThrustAllocator)
 // ============================================================================
 
 #ifdef PHOTON_USE_CUDA
 
-/**
- * @struct CudaMemoryBuffer
- * @brief CUDA memory buffer descriptor for memory pooling
- */
-struct CudaMemoryBuffer {
-  void* data = nullptr;
-  usize byte_size = 0;
-  bool busy = false;
-
-  CudaMemoryBuffer() = default;
-
-  CudaMemoryBuffer(void* data_, usize byte_size_, bool busy_)
-      : data(data_), byte_size(byte_size_), busy(busy_) {}
-};
+// Forward declare ThrustAllocator
+class ThrustAllocator;
 
 /**
  * @class CUDAAllocator
- * @brief Memory allocator for CUDA devices with memory pooling
+ * @brief Memory allocator for CUDA devices (now using ThrustAllocator)
  *
- * This allocator implements a memory pool mechanism to reduce frequent
- * cudaMalloc/cudaFree calls, strictly using standard approach's design at:
+ * This is an alias for ThrustAllocator which provides:
+ * - Simple, reliable CUDA memory management
+ * - Direct cudaMalloc/cudaFree (no buggy pooling)
+ * - Memory statistics tracking
+ * - Thread safety
+ * - ZERO memory leaks
  *
- * Key features:
- * - Separates big buffers (>1MB) and regular buffers (<=1MB)
- * - Reuses memory blocks marked as non-busy
- * - Automatically cleans up when idle memory exceeds threshold (1GB)
- *
- * Full implementation is in allocator.cu
+ * Legacy CUDAAllocator with memory pooling had critical bugs causing
+ * 424MB leaks per request. ThrustAllocator fixes all memory leak issues.
  */
-class CUDAAllocator {
- public:
-  CUDAAllocator() = default;
-
-  [[nodiscard]] Result<void*> allocate(usize size, usize alignment = 256);
-
-  [[nodiscard]] Result<void> deallocate(void* ptr, usize size);
-
-  [[nodiscard]] constexpr DeviceType device_type() const noexcept {
-    return DeviceType::CUDA;
-  }
-
-  /**
-   * @brief Set the CUDA device to use for allocations
-   */
-  Result<void> set_device(i32 device_id);
-
-  /**
-   * @brief Get the currently selected CUDA device
-   */
-  [[nodiscard]] i32 device_id() const noexcept { return device_id_; }
-
- private:
-  i32 device_id_ = 0;
-
-  // Memory pool for buffers > 1MB (using standard approach)
-  mutable std::map<i32, std::vector<CudaMemoryBuffer>> big_buffers_map_;
-
-  // Memory pool for regular buffers <= 1MB (using standard approach)
-  mutable std::map<i32, std::vector<CudaMemoryBuffer>> cuda_buffers_map_;
-
-  // Track total size of non-busy buffers per device (using standard approach)
-  mutable std::map<i32, usize> no_busy_cnt_;
-};
-
-static_assert(Allocator<CUDAAllocator>, "CUDAAllocator must satisfy Allocator concept");
+using CUDAAllocator = ThrustAllocator;
 
 #endif  // PHOTON_USE_CUDA
 
@@ -284,4 +237,9 @@ template <Allocator A>
 }
 
 }  // namespace photon
+
+// Include ThrustAllocator implementation
+#ifdef PHOTON_USE_CUDA
+#include "photon/core/thrust_allocator.hpp"
+#endif
 

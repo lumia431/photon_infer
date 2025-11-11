@@ -15,9 +15,7 @@
 #include "photon/ops/kernels/matmul_kernel.hpp"
 
 #ifdef PHOTON_USE_CUDA
-#include "photon/ops/kernels/cuda/matmul_kernel.cuh"
 #include "photon/ops/kernels/cuda/matmul_gemv_quant.cuh"
-#include "photon/ops/kernels/cuda/matmul_gemm_quant.cuh"
 #include "photon/ops/kernels/cuda/matmul_dequant_cached.cuh"
 #include <cublas_v2.h>
 #endif
@@ -135,9 +133,14 @@ Result<void> MatMulOp::forward_cpu(const Tensor& input, Tensor& output) {
           output_dim_, input_dim_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::matmul_gemv_eigen<f32>(
           input_data, weight_data, output_data,
           output_dim_, input_dim_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   } else {
     // GEMM: [B×N] @ [M×N]^T -> [B×M]
@@ -148,48 +151,43 @@ Result<void> MatMulOp::forward_cpu(const Tensor& input, Tensor& output) {
           batch_size, output_dim_, input_dim_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::matmul_gemm_eigen<f32>(
           input_data, weight_data, output_data,
           batch_size, output_dim_, input_dim_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   }
 }
 
 #ifdef PHOTON_USE_CUDA
 Result<void> MatMulOp::forward_cuda(const Tensor& input, Tensor& output) {
+  // Only quantized path is supported
+  if (!is_quantized_) {
+    return Err<void>(ErrorCode::InvalidOperator,
+                    "FP32 path is not supported. Please quantize the model weights first by calling quantize_weight().");
+  }
+
   // Dispatch based on input shape
   if (input.ndim() == 1) {
     // GEMV: [N] @ [M×N]^T -> [M]
     i32 M = input_dim_;   // Input dimension
     i32 K = output_dim_;  // Output dimension (number of rows in weight)
 
-    // Create input/output spans
-    std::span<const f32> input_data(input.ptr<f32>(), input.size());
-    std::span<f32> output_data(output.ptr<f32>(), output.size());
+    // Quantized path: int8 weights with dynamic dequantization
+    const Tensor& weight = weights_[0];
 
-    // Dispatch based on quantization
-    if (is_quantized_) {
-      // Quantized path: int8 weights with dynamic dequantization
-      const Tensor& weight = weights_[0];
-
-      return kernels::cuda::matmul_gemv_quant_launch(
-          input.ptr<f32>(), input.size(),
-          weight.ptr<i8>(), weight.size(),
-          scale_tensor_.ptr<f32>(), scale_tensor_.size(),
-          quant_params_.group_size,
-          output.ptr<f32>(), output.size(),
-          M, K,
-          nullptr);  // stream = nullptr for now
-    } else {
-      // Float32 path (original implementation)
-      const Tensor& weight = weights_[0];
-      std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
-
-      return kernels::cuda::matmul_gemv_cuda_launch(
-          input_data, weight_data, output_data,
-          M, K,
-          nullptr);  // stream = nullptr for now
-    }
+    return kernels::cuda::matmul_gemv_quant_launch(
+        input.ptr<f32>(), input.size(),
+        weight.ptr<i8>(), weight.size(),
+        scale_tensor_.ptr<f32>(), scale_tensor_.size(),
+        quant_params_.group_size,
+        output.ptr<f32>(), output.size(),
+        M, K,
+        nullptr);  // stream = nullptr for now
   } else {
     // GEMM: [B×N] @ [M×N]^T -> [B×M]
     // Use cuBLAS for optimal batched matrix multiplication
@@ -197,43 +195,20 @@ Result<void> MatMulOp::forward_cuda(const Tensor& input, Tensor& output) {
     i32 M = input_dim_;   // Input dimension
     i32 K = output_dim_;  // Output dimension
 
-    if (is_quantized_) {
-      // Quantized path: use cached dequantization + cuBLAS FP32 GEMM
-      const Tensor& weight = weights_[0];
+    // Quantized path: use cached dequantization + cuBLAS FP32 GEMM
+    const Tensor& weight = weights_[0];
 
-      // Use dequant-cached kernel if cuBLAS handle is available
-      if (cublas_handle_ != nullptr) {
-        return kernels::cuda::matmul_gemm_dequant_cached_launch(
-            static_cast<cublasHandle_t>(cublas_handle_),
-            input.ptr<f32>(), input.size(),
-            weight.ptr<i8>(), weight.size(),
-            scale_tensor_.ptr<f32>(), scale_tensor_.size(),
-            quant_params_.group_size,
-            output.ptr<f32>(), output.size(),
-            batch_size, K, M,
-            reinterpret_cast<f32**>(&weight_fp32_cache_),
-            nullptr);
-      } else {
-        // Fallback to custom INT8 kernel
-        return kernels::cuda::matmul_gemm_quant_launch(
-            input.ptr<f32>(), input.size(),
-            weight.ptr<i8>(), weight.size(),
-            scale_tensor_.ptr<f32>(), scale_tensor_.size(),
-            quant_params_.group_size,
-            output.ptr<f32>(), output.size(),
-            batch_size, K, M,
-            nullptr);
-      }
-    } else {
-      // Float32 path: use cuBLAS GEMM
-      const Tensor& weight = weights_[0];
-      return kernels::cuda::matmul_gemm_cublas_launch(
-          input.ptr<f32>(),
-          weight.ptr<f32>(),
-          output.ptr<f32>(),
-          batch_size, K, M,  // K and M swapped for cuBLAS
-          nullptr);
-    }
+    // Use dequant-cached kernel (cuBLAS handle is always set in production)
+    return kernels::cuda::matmul_gemm_dequant_cached_launch(
+        static_cast<cublasHandle_t>(cublas_handle_),
+        input.ptr<f32>(), input.size(),
+        weight.ptr<i8>(), weight.size(),
+        scale_tensor_.ptr<f32>(), scale_tensor_.size(),
+        quant_params_.group_size,
+        output.ptr<f32>(), output.size(),
+        batch_size, K, M,
+        reinterpret_cast<f32**>(&weight_fp32_cache_),
+        nullptr);
   }
 }
 #endif

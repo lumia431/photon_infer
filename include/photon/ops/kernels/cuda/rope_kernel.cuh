@@ -23,21 +23,6 @@
 
 namespace photon::kernels::cuda {
 
-/**
- * @brief Precompute sin/cos cache for RoPE
- *
- * @param sin_cache Output sin cache [max_seq_len × head_size]
- * @param cos_cache Output cos cache [max_seq_len × head_size]
- * @param head_size Head dimension
- * @param max_seq_len Maximum sequence length
- * @param stream CUDA stream (optional)
- */
-Result<void> rope_precompute_cuda(
-    std::span<f32> sin_cache,
-    std::span<f32> cos_cache,
-    i32 head_size,
-    i32 max_seq_len,
-    cudaStream_t stream = nullptr);
 
 /**
  * @brief Apply RoPE to Q and K tensors
