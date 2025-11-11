@@ -128,9 +128,14 @@ Result<void> RMSNormOp::forward_cpu(const Tensor& input, Tensor& output) {
           dim_, eps_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::rmsnorm_eigen<f32>(
           input_data, weight_data, output_data,
           dim_, eps_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   } else {
     // Batch normalization: [batch × dim] -> [batch × dim]
@@ -141,9 +146,14 @@ Result<void> RMSNormOp::forward_cpu(const Tensor& input, Tensor& output) {
           batch_size, dim_, eps_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::rmsnorm_batch_eigen<f32>(
           input_data, weight_data, output_data,
           batch_size, dim_, eps_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   }
 }

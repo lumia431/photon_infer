@@ -205,9 +205,14 @@ Result<void> RoPEOp::forward_cpu(Tensor& q, Tensor& k, i32 pos) {
           pos, dim_, kv_dim_, head_size_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::rope_eigen<f32>(
           q_data, k_data, sin_data, cos_data,
           pos, dim_, kv_dim_, head_size_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   } else {
     // Batched: process each sequence
@@ -226,9 +231,14 @@ Result<void> RoPEOp::forward_cpu(Tensor& q, Tensor& k, i32 pos) {
             pos, dim_, kv_dim_, head_size_);
         result = Ok();
       } else {
+#ifdef PHOTON_USE_EIGEN
         result = kernels::rope_eigen<f32>(
             q_data, k_data, sin_data, cos_data,
             pos, dim_, kv_dim_, head_size_);
+#else
+        return Err<void>(ErrorCode::NotImplemented,
+                        "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
       }
       if (!result) return result;
     }

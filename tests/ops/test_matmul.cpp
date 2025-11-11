@@ -294,6 +294,7 @@ TEST(MatMulOpTest, WrongOutputDimension) {
 // Naive vs Eigen Correctness Tests
 // ============================================================================
 
+#ifdef PHOTON_USE_EIGEN
 TEST(MatMulOpTest, NaiveVsEigenGEMV) {
   const i32 input_dim = 64;
   const i32 output_dim = 32;
@@ -338,7 +339,9 @@ TEST(MatMulOpTest, NaiveVsEigenGEMV) {
     EXPECT_NEAR(out1(i), out2(i), 1e-3f) << "Mismatch at index " << i;
   }
 }
+#endif
 
+#ifdef PHOTON_USE_EIGEN
 TEST(MatMulOpTest, NaiveVsEigenGEMM) {
   const i32 input_dim = 32;
   const i32 output_dim = 16;
@@ -387,6 +390,7 @@ TEST(MatMulOpTest, NaiveVsEigenGEMM) {
     }
   }
 }
+#endif
 
 // ============================================================================
 // Concept Verification

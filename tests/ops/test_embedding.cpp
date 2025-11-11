@@ -85,6 +85,7 @@ TEST(EmbeddingOpTest, InvalidWeightDimensions) {
 // Forward Pass Tests
 // ============================================================================
 
+#ifdef PHOTON_USE_EIGEN
 TEST(EmbeddingOpTest, SimpleForward) {
   const i32 vocab_size = 5;
   const i32 embed_dim = 3;
@@ -133,7 +134,9 @@ TEST(EmbeddingOpTest, SimpleForward) {
   EXPECT_FLOAT_EQ(out_mat(2, 1), 13.0f);
   EXPECT_FLOAT_EQ(out_mat(2, 2), 14.0f);
 }
+#endif
 
+#ifdef PHOTON_USE_EIGEN
 TEST(EmbeddingOpTest, SingleToken) {
   const i32 vocab_size = 10;
   const i32 embed_dim = 4;
@@ -164,6 +167,7 @@ TEST(EmbeddingOpTest, SingleToken) {
   EXPECT_FLOAT_EQ(out_vec(2), 22.0f);
   EXPECT_FLOAT_EQ(out_vec(3), 23.0f);
 }
+#endif
 
 TEST(EmbeddingOpTest, LargerBatch) {
   const i32 vocab_size = 100;

@@ -135,9 +135,14 @@ Result<void> MatMulOp::forward_cpu(const Tensor& input, Tensor& output) {
           output_dim_, input_dim_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::matmul_gemv_eigen<f32>(
           input_data, weight_data, output_data,
           output_dim_, input_dim_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   } else {
     // GEMM: [B×N] @ [M×N]^T -> [B×M]
@@ -148,9 +153,14 @@ Result<void> MatMulOp::forward_cpu(const Tensor& input, Tensor& output) {
           batch_size, output_dim_, input_dim_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::matmul_gemm_eigen<f32>(
           input_data, weight_data, output_data,
           batch_size, output_dim_, input_dim_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   }
 }

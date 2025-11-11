@@ -7,7 +7,9 @@
 
 #include <gtest/gtest.h>
 
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Core>
+#endif
 
 using namespace photon;
 
@@ -162,6 +164,7 @@ TEST(TensorTest, IndexAccess) {
 // Eigen Integration Tests
 // ============================================================================
 
+#ifdef PHOTON_USE_EIGEN
 TEST(TensorTest, VectorMap) {
   std::vector<f32> data = {1.0f, 2.0f, 3.0f, 4.0f};
   auto result = Tensor::from_vector(data);
@@ -260,6 +263,7 @@ TEST(TensorTest, MatrixMultiplication) {
   EXPECT_FLOAT_EQ(map_c(1, 0), 139.0f);
   EXPECT_FLOAT_EQ(map_c(1, 1), 154.0f);
 }
+#endif
 
 // ============================================================================
 // Reshape Tests
