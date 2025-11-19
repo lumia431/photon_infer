@@ -93,7 +93,7 @@ class ContinuousBatchEngine {
     i64 request_id = scheduler_.add_request(prompt, tokens, max_new_tokens);
 
     // Allocate KV cache
-    auto* cache_mgr = model_.cache_manager();
+    auto* cache_mgr = model_.paged_cache_manager();
     i32 total_tokens = static_cast<i32>(tokens.size()) + max_new_tokens + 10;
     auto alloc_result = cache_mgr->allocate_sequence(static_cast<i32>(request_id), total_tokens);
     if (!alloc_result) {
@@ -250,7 +250,7 @@ class ContinuousBatchEngine {
           finished_ids.push_back(req->request_id());
 
           // Free KV cache
-          auto* cache_mgr = model_.cache_manager();
+          auto* cache_mgr = model_.paged_cache_manager();
           cache_mgr->free_sequence(static_cast<i32>(req->request_id()));
         }
       }

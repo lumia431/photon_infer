@@ -100,35 +100,25 @@ class TransformerBlock {
   /**
    * @brief Batched forward pass through transformer block
    *
-   * Processes multiple sequences in parallel using batch-optimized kernels.
-   * This is the key optimization for achieving 250+ tokens/s throughput.
+   * Processes multiple sequences in parallel using batch-optimized kernels
+   * with block-based PagedAttention. This is the key optimization for achieving
+   * high throughput with memory efficiency.
    *
    * @param x_batch Input/output tensor [batch_size, dim] (modified in-place)
-   * @param positions_gpu Positions for each sequence [batch_size] (GPU pointer)
-   * @param positions_cpu Positions for each sequence [batch_size] (CPU vector)
-   * @param seq_ids_cpu Sequence IDs [batch_size] (CPU vector)
-   * @param cache_offsets_gpu Cache offsets [batch_size] (GPU pointer)
+   * @param positions_gpu Positions on GPU [batch_size]
+   * @param positions_cpu Positions on CPU [batch_size]
+   * @param seq_ids_cpu Sequence IDs on CPU [batch_size]
    * @param batch_size Number of sequences in batch
-   * @param key_cache KV cache for keys [total_cache_size, kv_dim]
-   * @param value_cache KV cache for values [total_cache_size, kv_dim]
-   * @param cache_manager KV cache manager for offset lookups
+   * @param key_cache Block-based key cache [num_blocks, num_kv_heads, block_size, head_size]
+   * @param value_cache Block-based value cache [num_blocks, num_kv_heads, block_size, head_size]
+   * @param cache_manager Paged cache manager with block table
    * @return Result<void> Success or error
-   *
-   * Implementation strategy:
-   * 1. Batch RMSNorm: Process all sequences at once
-   * 2. Batch MatMul (Q/K/V projections): [batch, dim] × [dim, out_dim]
-   * 3. RoPE: Applied per-sequence (already fast)
-   * 4. Batched MHA with paged cache: Uses batched_mha_paged_launch
-   * 5. Batch MatMul (output projection)
-   * 6. Batch Add (residual)
-   * 7. Batch FFN
    */
   Result<void> forward_batched(
       Tensor& x_batch,
       const i32* positions_gpu,
       const std::vector<i32>& positions_cpu,
       const std::vector<i32>& seq_ids_cpu,
-      const i32* cache_offsets_gpu,
       i32 batch_size,
       Tensor& key_cache,
       Tensor& value_cache,

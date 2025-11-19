@@ -8,78 +8,96 @@
 
 /**
  * @file kv_cache_manager.hpp
- * @brief Simple KV Cache Manager for batched inference
- * @version 1.0.0
+ * @brief Block-based KV Cache Manager with PagedAttention support
+ * @version 2.0.0
  *
- * This is a simplified cache manager that allocates contiguous memory blocks
- * for each sequence. Future versions will implement PagedAttention.
+ * Implements true block-based paged attention with dynamic block allocation.
  */
-
 
 #include "photon/core/tensor.hpp"
 #include "photon/core/error.hpp"
+#include "photon/runtime/block_manager.hpp"
+#include "photon/runtime/block_table.hpp"
 #include <vector>
-#include <unordered_map>
+#include <memory>
 
 namespace photon::model {
 
 /**
- * @brief Simple KV Cache Manager (contiguous allocation)
+ * @brief Block-based KV Cache Manager for PagedAttention
  *
- * This manager allocates and tracks KV cache for multiple sequences.
- * Each sequence gets a contiguous chunk of the pre-allocated cache.
+ * **Design:**
+ * - Dynamic block allocation: allocate blocks on-demand
+ * - Block table: non-contiguous memory access via block table
+ * - Memory efficient: only allocate what's needed (50-80% savings)
+ * - Dynamic extension: sequences can grow beyond initial allocation
  *
- * **Current design (v1):**
- * - Pre-allocates fixed-size cache: [max_sequences, max_seq_len, kv_dim]
- * - Simple slot-based allocation (no paging yet)
- * - Supports concurrent sequences with independent lifetimes
+ * **Memory Layout:**
+ * - KV Cache: [num_blocks, num_kv_heads, block_size, head_size]
+ * - Each sequence maps to multiple blocks via BlockTable
+ * - Blocks are non-contiguous and managed by BlockManager
  *
- * **Future (v2 - PagedAttention):**
- * - Block-based allocation with variable-sized blocks
- * - Block tables for non-contiguous memory
- * - Prefix caching and sharing
+ * **Example:**
+ * ```
+ * Block Pool: [B0][B1][B2][B3][B4][B5][B6][B7]...
+ * Seq 0: [B0, B3, B7]   <- 3 blocks, non-contiguous
+ * Seq 1: [B1, B4]       <- 2 blocks
+ * Seq 2: [B2, B5, B6]   <- 3 blocks
+ * ```
  */
 class KVCacheManager {
  public:
   /**
-   * @brief Construct KV cache manager
+   * @brief Construct block-based KV cache manager
    *
-   * @param max_sequences Maximum number of concurrent sequences
-   * @param max_seq_len Maximum sequence length
+   * @param num_blocks Total number of physical blocks available
+   * @param block_size Number of tokens per block (typically 16)
    * @param num_layers Number of transformer layers
-   * @param kv_dim KV dimension (num_kv_heads * head_size)
+   * @param num_kv_heads Number of KV heads (for GQA)
+   * @param head_size Size of each attention head
    * @param device Device to allocate cache on
    */
-  KVCacheManager(i32 max_sequences, i32 max_seq_len, i32 num_layers,
-                 i32 kv_dim, DeviceType device);
+  KVCacheManager(i32 num_blocks, i32 block_size, i32 num_layers,
+                   i32 num_kv_heads, i32 head_size, DeviceType device);
 
   /**
-   * @brief Initialize cache (allocate GPU memory)
+   * @brief Initialize cache (allocate GPU memory for all blocks)
    */
   Result<void> init();
 
   /**
-   * @brief Allocate cache for a new sequence
+   * @brief Allocate blocks for a new sequence
    *
-   * @param seq_id Sequence ID (user-provided, typically 0-based index)
-   * @param num_tokens Number of tokens to allocate slots for
-   * @return Result indicating success or error
+   * @param seq_id Sequence ID
+   * @param num_tokens Number of tokens needed
+   * @return Number of blocks allocated
    */
-  Result<void> allocate_sequence(i32 seq_id, i32 num_tokens);
+  Result<i32> allocate_sequence(i32 seq_id, i32 num_tokens);
 
   /**
-   * @brief Free cache for a sequence
+   * @brief Extend sequence by allocating additional blocks
    *
-   * @param seq_id Sequence ID to free
-   * @return Result indicating success or error
+   * Used during generation when sequence grows beyond current capacity.
+   *
+   * @param seq_id Sequence ID
+   * @param additional_tokens Number of additional tokens needed
+   * @return Number of additional blocks allocated
    */
-  Result<void> free_sequence(i32 seq_id);
+  Result<i32> extend_sequence(i32 seq_id, i32 additional_tokens);
+
+  /**
+   * @brief Free all blocks allocated to a sequence
+   *
+   * @param seq_id Sequence ID
+   * @return Number of blocks freed
+   */
+  Result<i32> free_sequence(i32 seq_id);
 
   /**
    * @brief Get key cache tensor for a layer
    *
    * @param layer_idx Layer index
-   * @return Key cache tensor [max_sequences * max_seq_len, kv_dim]
+   * @return Key cache tensor [num_blocks, num_kv_heads, block_size, head_size]
    */
   Tensor& get_key_cache(i32 layer_idx);
 
@@ -87,20 +105,46 @@ class KVCacheManager {
    * @brief Get value cache tensor for a layer
    *
    * @param layer_idx Layer index
-   * @return Value cache tensor [max_sequences * max_seq_len, kv_dim]
+   * @return Value cache tensor [num_blocks, num_kv_heads, block_size, head_size]
    */
   Tensor& get_value_cache(i32 layer_idx);
 
   /**
-   * @brief Get cache offset for a sequence
+   * @brief Get block table in GPU format for a batch of sequences
    *
-   * This returns the starting offset in the cache for the given sequence.
-   * For contiguous allocation: offset = seq_slot * max_seq_len
+   * Prepares the block table for GPU kernels:
+   * - Flat array: [seq_0_blocks..., seq_1_blocks..., ...]
+   * - Padded with -1 to max_blocks_per_seq
+   * - Returns CPU tensor that can be copied to GPU
+   *
+   * @param seq_ids Ordered list of sequence IDs
+   * @return CPU Tensor with shape [num_seqs, max_blocks_per_seq], dtype=Int32
+   */
+  Result<Tensor> get_block_table_tensor(const std::vector<i32>& seq_ids);
+
+  /**
+   * @brief Get sequence lengths for a batch
+   *
+   * @param seq_ids Ordered list of sequence IDs
+   * @return Vector of sequence lengths (in tokens)
+   */
+  Result<std::vector<i32>> get_sequence_lengths(const std::vector<i32>& seq_ids) const;
+
+  /**
+   * @brief Get number of blocks allocated to a sequence
    *
    * @param seq_id Sequence ID
-   * @return Offset in tokens
+   * @return Number of blocks
    */
-  Result<i32> get_sequence_offset(i32 seq_id) const;
+  Result<i32> get_num_blocks(i32 seq_id) const;
+
+  /**
+   * @brief Get current capacity (in tokens) for a sequence
+   *
+   * @param seq_id Sequence ID
+   * @return Capacity in tokens (num_blocks * block_size)
+   */
+  Result<i32> get_sequence_capacity(i32 seq_id) const;
 
   /**
    * @brief Check if a sequence is allocated
@@ -108,9 +152,25 @@ class KVCacheManager {
   bool is_sequence_allocated(i32 seq_id) const;
 
   /**
-   * @brief Get number of free slots
+   * @brief Update the current token count for a sequence
+   *
+   * This should be called after writing new tokens to the cache.
+   *
+   * @param seq_id Sequence ID
+   * @param new_token_count New total token count (including newly added tokens)
+   * @return Result<void> Success or error
    */
-  i32 num_free_slots() const;
+  Result<void> update_sequence_length(i32 seq_id, i32 new_token_count);
+
+  /**
+   * @brief Get number of free blocks
+   */
+  i32 num_free_blocks() const;
+
+  /**
+   * @brief Get block manager statistics
+   */
+  f32 get_block_utilization() const;
 
   /**
    * @brief Reset all allocations (clear all sequences)
@@ -118,36 +178,50 @@ class KVCacheManager {
   void reset();
 
   // Accessors
-  [[nodiscard]] i32 max_sequences() const noexcept { return max_sequences_; }
-  [[nodiscard]] i32 max_seq_len() const noexcept { return max_seq_len_; }
+  [[nodiscard]] i32 num_blocks() const noexcept { return num_blocks_; }
+  [[nodiscard]] i32 block_size() const noexcept { return block_size_; }
   [[nodiscard]] i32 num_layers() const noexcept { return num_layers_; }
-  [[nodiscard]] i32 kv_dim() const noexcept { return kv_dim_; }
+  [[nodiscard]] i32 num_kv_heads() const noexcept { return num_kv_heads_; }
+  [[nodiscard]] i32 head_size() const noexcept { return head_size_; }
+  [[nodiscard]] i32 kv_dim() const noexcept { return num_kv_heads_ * head_size_; }
+
+  /**
+   * @brief Get maximum blocks per sequence (for GPU kernel configuration)
+   *
+   * This is computed based on maximum sequence length supported.
+   * Used to determine padding size for block table.
+   */
+  i32 get_max_blocks_per_seq() const;
 
  private:
   // Configuration
-  i32 max_sequences_;
-  i32 max_seq_len_;
-  i32 num_layers_;
-  i32 kv_dim_;
-  DeviceType device_;
+  i32 num_blocks_;      ///< Total number of physical blocks
+  i32 block_size_;      ///< Tokens per block
+  i32 num_layers_;      ///< Number of transformer layers
+  i32 num_kv_heads_;    ///< Number of KV heads
+  i32 head_size_;       ///< Size of each head
+  DeviceType device_;   ///< Device for allocation
+
+  // Block management
+  std::unique_ptr<runtime::BlockManager> block_manager_;
+  std::unique_ptr<runtime::BlockTable> block_table_;
 
   // KV cache tensors: one per layer
-  // Shape: [max_sequences * max_seq_len, kv_dim]
+  // Shape: [num_blocks, num_kv_heads, block_size, head_size]
   std::vector<Tensor> key_caches_;
   std::vector<Tensor> value_caches_;
 
-  // Allocation tracking
-  struct SequenceInfo {
-    i32 slot_idx;       // Which slot (0 to max_sequences-1)
-    i32 num_tokens;     // Number of allocated tokens
-    bool active;        // Is this sequence active?
-  };
-
-  std::unordered_map<i32, SequenceInfo> sequence_map_;  // seq_id -> info
-  std::vector<bool> slot_free_;  // slot availability: true = free
+  // Track sequence token counts (for sequence length tracking)
+  std::unordered_map<i32, i32> seq_num_tokens_;
 
   bool initialized_ = false;
+
+  /**
+   * @brief Calculate number of blocks needed for a given number of tokens
+   */
+  i32 calculate_num_blocks_needed(i32 num_tokens) const {
+    return (num_tokens + block_size_ - 1) / block_size_;
+  }
 };
 
 }  // namespace photon::model
-

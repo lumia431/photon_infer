@@ -23,6 +23,7 @@
 #include "photon/io/checkpoint.hpp"
 #include "photon/io/tokenizer.hpp"
 #include "photon/runtime/kv_cache_manager.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
 
 #ifdef PHOTON_USE_CUDA
 #include <cuda_runtime.h>
@@ -76,18 +77,18 @@ Result<void> batched_inference_multi_prompts(
     }
   }
 
-  // Get cache manager
-  auto* cache_mgr = model.cache_manager();
-  if (!cache_mgr) {
-    return Err<void>(ErrorCode::InvalidOperator, "Cache manager not initialized");
+  // Get cache manager V2
+  auto* cache_mgr_v2 = model.paged_cache_manager();
+  if (!cache_mgr_v2) {
+    return Err<void>(ErrorCode::InvalidOperator, "Cache manager V2 not initialized");
   }
 
-  // Allocate sequences
+  // Allocate sequences (V2 will auto-allocate in forward_batched, but we can pre-allocate)
   std::vector<i32> seq_ids(batch_size);
   i32 total_tokens_needed = max_prompt_len + max_new_tokens + 10;
   for (i32 i = 0; i < batch_size; ++i) {
     seq_ids[i] = i;
-    auto alloc_result = cache_mgr->allocate_sequence(i, total_tokens_needed);
+    auto alloc_result = cache_mgr_v2->allocate_sequence(i, total_tokens_needed);
     if (!alloc_result) {
       return Err<void>(alloc_result.error());
     }
@@ -145,7 +146,7 @@ Result<void> batched_inference_multi_prompts(
     if (!result) {
       LOG(ERROR) << "Prefill failed at position " << pos << ": " << result.error().message();
       for (i32 i = 0; i < batch_size; ++i) {
-        cache_mgr->free_sequence(i);
+        (void)cache_mgr_v2->free_sequence(i);  // Suppress nodiscard warning
       }
       return Err<void>(result.error());
     }
@@ -189,7 +190,7 @@ Result<void> batched_inference_multi_prompts(
     if (!result) {
       LOG(ERROR) << "Decode failed at step " << step << ": " << result.error().message();
       for (i32 i = 0; i < batch_size; ++i) {
-        cache_mgr->free_sequence(i);
+        (void)cache_mgr_v2->free_sequence(i);  // Suppress nodiscard warning
       }
       return Err<void>(result.error());
     }
@@ -256,7 +257,7 @@ Result<void> batched_inference_multi_prompts(
     LOG(INFO) << "Average per sequence: " << (static_cast<double>(total_tokens_generated) / batch_size) << " tokens\n";
   }
   for (i32 i = 0; i < batch_size; ++i) {
-    auto free_result = cache_mgr->free_sequence(i);
+    auto free_result = cache_mgr_v2->free_sequence(i);
     if (!free_result) {
       LOG(WARNING) << "Failed to free sequence " << i << ": " << free_result.error().message();
     }
@@ -349,16 +350,20 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  LOG(INFO) << "\n[4/4] Initializing paged KV cache...";
+  LOG(INFO) << "\n[4/4] Initializing PagedAttention V2 (block-based) cache...";
+  // V2 uses block-based allocation for better memory efficiency
+  i32 block_size = 16;  // Tokens per block (standard for vLLM PagedAttention)
   i32 max_sequences = 32;
   i32 max_seq_len = 256;
-  auto cache_result = model.init_paged_cache(max_sequences, max_seq_len);
+  i32 num_blocks = (max_sequences * max_seq_len + block_size - 1) / block_size;
+
+  auto cache_result = model.init_paged_cache(num_blocks, block_size);
   if (!cache_result) {
-    LOG(ERROR) << "Failed to initialize paged cache: " << cache_result.error().message();
+    LOG(ERROR) << "Failed to initialize paged cache V2: " << cache_result.error().message();
     return 1;
   }
-  LOG(INFO) << "      Cache: " << max_sequences << " sequences × " << max_seq_len
-            << " tokens/seq";
+  LOG(INFO) << "      Cache: " << num_blocks << " blocks × " << block_size
+            << " tokens/block (total capacity: " << num_blocks * block_size << " tokens)";
   LOG(INFO) << "      Model ready!\n";
 
   std::vector<std::string> test_prompts = {
