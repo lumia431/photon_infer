@@ -361,8 +361,8 @@ Result<void> LLaMAModel::quantize_weights(i32 group_size) {
 // Batched Inference Support
 // ============================================================================
 
-Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
-  if (batch_size <= batched_buffers_capacity_) {
+Result<void> LLaMAModel::ensure_batched_buffers(i32 total_tokens) {
+  if (total_tokens <= batched_buffers_capacity_) {
     return Ok();  // Already allocated
   }
 
@@ -374,14 +374,14 @@ Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
 
   // Allocate new GPU buffers
   cudaError_t err;
-  err = cudaMalloc(&positions_gpu_, batch_size * sizeof(i32));
+  err = cudaMalloc(&positions_gpu_, total_tokens * sizeof(i32));
   if (err != cudaSuccess) {
     return Err<void>(ErrorCode::CudaError,
                     std::string("Failed to allocate positions_gpu: ") +
                     cudaGetErrorString(err));
   }
 
-  err = cudaMalloc(&seq_ids_gpu_, batch_size * sizeof(i32));
+  err = cudaMalloc(&seq_ids_gpu_, total_tokens * sizeof(i32));
   if (err != cudaSuccess) {
     cudaFree(positions_gpu_);
     positions_gpu_ = nullptr;
@@ -390,7 +390,7 @@ Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
                     cudaGetErrorString(err));
   }
 
-  err = cudaMalloc(&cache_offsets_gpu_, batch_size * sizeof(i32));
+  err = cudaMalloc(&cache_offsets_gpu_, total_tokens * sizeof(i32));
   if (err != cudaSuccess) {
     cudaFree(positions_gpu_);
     cudaFree(seq_ids_gpu_);
@@ -403,7 +403,7 @@ Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
 #endif
 
   // Allocate Tensor buffers
-  auto tokens_result = Tensor::create({batch_size}, DataType::Int32, DeviceType::CUDA);
+  auto tokens_result = Tensor::create({total_tokens}, DataType::Int32, DeviceType::CUDA);
   if (!tokens_result) {
 #ifdef PHOTON_USE_CUDA
     cudaFree(positions_gpu_);
@@ -417,7 +417,7 @@ Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
   }
   tokens_batch_ = std::move(tokens_result.value());
 
-  auto x_result = Tensor::create({batch_size, config_.dim}, DataType::Float32, DeviceType::CUDA);
+  auto x_result = Tensor::create({total_tokens, config_.dim}, DataType::Float32, DeviceType::CUDA);
   if (!x_result) {
 #ifdef PHOTON_USE_CUDA
     cudaFree(positions_gpu_);
@@ -431,7 +431,7 @@ Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
   }
   x_batch_ = std::move(x_result.value());
 
-  auto norm_result = Tensor::create({batch_size, config_.dim}, DataType::Float32, DeviceType::CUDA);
+  auto norm_result = Tensor::create({total_tokens, config_.dim}, DataType::Float32, DeviceType::CUDA);
   if (!norm_result) {
 #ifdef PHOTON_USE_CUDA
     cudaFree(positions_gpu_);
@@ -445,8 +445,8 @@ Result<void> LLaMAModel::ensure_batched_buffers(i32 batch_size) {
   }
   norm_batch_ = std::move(norm_result.value());
 
-  batched_buffers_capacity_ = batch_size;
-  LOG(INFO) << "Allocated batched buffers for batch_size=" << batch_size;
+  batched_buffers_capacity_ = total_tokens;
+  LOG(INFO) << "Allocated batched buffers for total_tokens=" << total_tokens;
   return Ok();
 }
 
@@ -505,22 +505,22 @@ Result<void> LLaMAModel::forward_batched(
                     "Batched forward currently only supported on CUDA");
   }
 
-  const i32 batch_size = static_cast<i32>(tokens.size());
-  if (batch_size == 0) {
+  const i32 total_tokens = static_cast<i32>(tokens.size());
+  if (total_tokens == 0) {
     return Err<void>(ErrorCode::InvalidArgument, "Empty batch");
   }
 
-  if (positions.size() != static_cast<usize>(batch_size) ||
-      seq_ids.size() != static_cast<usize>(batch_size)) {
+  if (positions.size() != static_cast<usize>(total_tokens) ||
+      seq_ids.size() != static_cast<usize>(total_tokens)) {
     return Err<void>(ErrorCode::InvalidArgument,
                     "tokens, positions, and seq_ids must have same size");
   }
 
   if (logits.ndim() != 2 ||
-      logits.dims()[0] != batch_size ||
+      logits.dims()[0] != total_tokens ||
       logits.dims()[1] != config_.vocab_size) {
     return Err<void>(ErrorCode::InvalidShape,
-                    "logits must have shape [batch_size, vocab_size]");
+                    "logits must have shape [total_tokens, vocab_size]");
   }
 
   if (logits.device() != DeviceType::CUDA) {
@@ -533,20 +533,20 @@ Result<void> LLaMAModel::forward_batched(
   // ========================================================================
 
   // Ensure pre-allocated buffers are ready
-  auto buffer_result = ensure_batched_buffers(batch_size);
+  auto buffer_result = ensure_batched_buffers(total_tokens);
   if (!buffer_result) return buffer_result;
 
   // Copy tokens to GPU (reusing pre-allocated buffer)
   cudaMemcpy(tokens_batch_.data(), tokens.data(),
-             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+             total_tokens * sizeof(i32), cudaMemcpyHostToDevice);
 
   // Copy positions to GPU (reusing pre-allocated buffer)
   cudaMemcpy(positions_gpu_, positions.data(),
-             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+             total_tokens * sizeof(i32), cudaMemcpyHostToDevice);
 
   // Copy seq_ids to GPU (reusing pre-allocated buffer)
   cudaMemcpy(seq_ids_gpu_, seq_ids.data(),
-             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+             total_tokens * sizeof(i32), cudaMemcpyHostToDevice);
 
   // Ensure all sequences are allocated and extended if needed
   if (use_paged_cache_) {
@@ -586,7 +586,7 @@ Result<void> LLaMAModel::forward_batched(
 
       // Call BATCHED forward with paged cache manager
       auto block_result = blocks_[layer_idx]->forward_batched(
-          x_batch_, positions_gpu_, positions, seq_ids, batch_size,
+          x_batch_, positions_gpu_, positions, seq_ids, total_tokens,
           key_cache, value_cache, paged_cache_manager_.get());
 
       if (!block_result) return block_result;

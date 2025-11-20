@@ -57,11 +57,13 @@ class ContinuousBatchEngine {
   ContinuousBatchEngine(
       model::LLaMAModel& model,
       const model::TikTokenizer& tokenizer,
-      i32 max_batch_size)
+      i32 max_batch_size,
+      i32 chunk_size = 256)
       : model_(model),
         tokenizer_(tokenizer),
         max_batch_size_(max_batch_size),
-        scheduler_(max_batch_size, 32, SchedulingPolicy::FCFS) {
+        chunk_size_(chunk_size),
+        scheduler_(max_batch_size, 32, chunk_size, SchedulingPolicy::FCFS) {
 
     // Allocate GPU buffers for sampling
 #ifdef PHOTON_USE_CUDA
@@ -179,29 +181,51 @@ class ContinuousBatchEngine {
 
  private:
   /**
-   * @brief Execute one step for a batch
+   * @brief Execute one step for a batch with chunked prefill
+   *
+   * This implements vLLM-style variable-length batching:
+   * - Each request can contribute different number of tokens
+   * - Prefill requests: process chunk_size tokens (e.g., 256)
+   * - Decode requests: process 1 token
+   * - All tokens are flattened into [total_tokens, ...] representation
    *
    * @param batch Batch of requests
    * @return Error if failed
    */
   Result<void> execute_batch_step(const ScheduledBatch& batch) {
-    i32 batch_size = batch.batch_size();
+    i32 num_seqs = batch.batch_size();
 
-    // Prepare inputs
-    std::vector<i32> tokens_batch(batch_size);
-    std::vector<i32> positions_batch(batch_size);
-    std::vector<i32> seq_ids(batch_size);
+    // Build variable-length batch
+    std::vector<i32> all_tokens;
+    std::vector<i32> all_positions;
+    std::vector<i32> seq_ids;
+    std::vector<i32> seq_lens;
 
-    for (i32 i = 0; i < batch_size; ++i) {
+    for (i32 i = 0; i < num_seqs; ++i) {
       auto& req = batch.requests[i];
-      tokens_batch[i] = req->next_token();
-      positions_batch[i] = req->current_position();
-      seq_ids[i] = static_cast<i32>(req->request_id());
+
+      // Get next chunk (256 tokens for prefill, 1 for decode)
+      auto chunk_tokens = req->get_next_chunk_tokens(chunk_size_);
+      auto chunk_positions = req->get_next_chunk_positions(chunk_size_);
+
+      i32 chunk_len = static_cast<i32>(chunk_tokens.size());
+      seq_lens.push_back(chunk_len);
+
+      // Append to flattened batch
+      all_tokens.insert(all_tokens.end(), chunk_tokens.begin(), chunk_tokens.end());
+      all_positions.insert(all_positions.end(), chunk_positions.begin(), chunk_positions.end());
+
+      // Repeat seq_id for each token in chunk
+      for (i32 j = 0; j < chunk_len; ++j) {
+        seq_ids.push_back(static_cast<i32>(req->request_id()));
+      }
     }
 
-    // Allocate logits tensor
+    i32 total_tokens = static_cast<i32>(all_tokens.size());
+
+    // Allocate logits tensor [total_tokens, vocab_size]
     auto logits_result = Tensor::create(
-        {batch_size, model_.config().vocab_size},
+        {total_tokens, model_.config().vocab_size},
         DataType::Float32,
         DeviceType::CUDA);
     if (!logits_result) {
@@ -209,8 +233,8 @@ class ContinuousBatchEngine {
     }
     auto logits = std::move(logits_result.value());
 
-    // Forward pass
-    auto forward_result = model_.forward_batched(tokens_batch, positions_batch, seq_ids, logits);
+    // Forward pass with variable-length batch
+    auto forward_result = model_.forward_batched(all_tokens, all_positions, seq_ids, logits);
     if (!forward_result) {
       return Err<void>(forward_result.error());
     }
@@ -218,31 +242,47 @@ class ContinuousBatchEngine {
 #ifdef PHOTON_USE_CUDA
     cudaDeviceSynchronize();
 
-    // GPU sampling
-    std::vector<i32> sampled_tokens(batch_size);
-    auto sampling_result = kernels::cuda::argmax_sampling_launch(
-        logits.ptr<f32>(),
-        sampled_tokens_gpu_,
-        batch_size,
-        model_.config().vocab_size,
-        nullptr);
+    // GPU sampling - only for decode requests (last token of each sequence)
+    std::vector<i32> sampled_tokens(num_seqs);
 
-    if (!sampling_result) {
-      return Err<void>(sampling_result.error());
+    // Extract logits for last token of each sequence
+    i32 token_offset = 0;
+    for (i32 i = 0; i < num_seqs; ++i) {
+      auto& req = batch.requests[i];
+      i32 chunk_len = seq_lens[i];
+
+      if (req->is_decode()) {
+        // Sample from last token's logits
+        i32 logit_idx = token_offset + chunk_len - 1;
+
+        auto sampling_result = kernels::cuda::argmax_sampling_launch(
+            logits.ptr<f32>() + logit_idx * model_.config().vocab_size,
+            sampled_tokens_gpu_ + i,
+            1,
+            model_.config().vocab_size,
+            nullptr);
+
+        if (!sampling_result) {
+          return Err<void>(sampling_result.error());
+        }
+      }
+
+      token_offset += chunk_len;
     }
 
+    // Copy sampled tokens to CPU
     cudaMemcpy(sampled_tokens.data(), sampled_tokens_gpu_,
-               batch_size * sizeof(i32), cudaMemcpyDeviceToHost);
+               num_seqs * sizeof(i32), cudaMemcpyDeviceToHost);
 
     // Update requests
     std::vector<i64> finished_ids;
-    for (i32 i = 0; i < batch_size; ++i) {
+    for (i32 i = 0; i < num_seqs; ++i) {
       auto& req = batch.requests[i];
+      i32 chunk_len = seq_lens[i];
 
-      // Add computed tokens (1 for decode, or chunk for prefill)
       if (req->is_prefill()) {
-        req->add_computed_tokens(1);
-        // Don't generate during prefill
+        // Prefill: just mark tokens as computed
+        req->add_computed_tokens(chunk_len);
       } else {
         // Decode: add generated token
         bool should_continue = req->add_token(sampled_tokens[i], tokenizer_.eos_id());
@@ -266,6 +306,7 @@ class ContinuousBatchEngine {
   model::LLaMAModel& model_;
   const model::TikTokenizer& tokenizer_;
   i32 max_batch_size_;
+  i32 chunk_size_;  // Prefill chunk size
   ContinuousBatchScheduler scheduler_;
 
 #ifdef PHOTON_USE_CUDA

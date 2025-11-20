@@ -24,6 +24,8 @@ PhotonInfer delivers **production-grade inference performance** for LLMs with ad
 |-------|-------------|-----------|---------|
 | Llama 3.2 1B | 185 tok/s | 252 tok/s | 0.73× (llama.cpp faster) |
 
+**TTFT (Time To First Token)**: 387ms @ 100-token prompt (INT8 quantization)
+
 ### Batched Inference Throughput
 
 | Batch Size | PhotonInfer | llama.cpp | Speedup |
@@ -55,39 +57,6 @@ PhotonInfer delivers **production-grade inference performance** for LLMs with ad
 - **Device Agnostic**: Unified interface for CPU and CUDA backends
 - **Concepts & Ranges**: Compile-time constraints and expressive type safety
 
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Continuous Batch Engine                     │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │         Two-Phase Scheduler                         │   │
-│  │  • RUNNING requests (continue generation)           │   │
-│  │  • WAITING requests (fill remaining capacity)       │   │
-│  │  • Token-level preemption support                   │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                           ↓                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │         Transformer Layers (Batched)                │   │
-│  │  • Batched RMSNorm (fused)                          │   │
-│  │  • INT8 Quantized MatMul (cuBLASLt)                 │   │
-│  │  • Batched RoPE (fused)                             │   │
-│  │  • Paged Multi-Head Attention                       │   │
-│  │    - Vectorized K/V cache access (float4)           │   │
-│  │    - Optimized softmax (CUB reduce)                 │   │
-│  │    - Partitioned attention for long sequences       │   │
-│  │  • SwiGLU FFN                                       │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                           ↓                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │         GPU Sampling (Zero-Copy)                    │   │
-│  │  • Batched temperature scaling                      │   │
-│  │  • Top-p/top-k filtering                            │   │
-│  │  • Categorical sampling on GPU                      │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -96,6 +65,12 @@ PhotonInfer delivers **production-grade inference performance** for LLMs with ad
 - **CMake**: 3.20+
 - **CUDA Toolkit**: 12.0+ (tested on 12.5)
 - **GPU**: NVIDIA GPU with Compute Capability 7.0+
+
+### Download Model
+
+Download a pre-quantized model to get started quickly:
+
+https://huggingface.co/Lummy666/llama-3.2-1B-Instruct
 
 ### Build
 
@@ -111,6 +86,29 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPHOTON_BUILD_CUDA=ON ..
 
 # Build
 cmake --build . -j$(nproc)
+
+# Install (optional)
+sudo cmake --install .
+```
+
+After installation, you can run the web server directly from anywhere:
+
+```bash
+photon_web_server \
+    --port 5728 \
+    --model /path/to/llama-3.2-1B-Instruct \
+    --tokenizer /path/to/llama-3.2-1B-Instruct/tokenizer.json
+```
+
+The installation will place:
+- `photon_web_server` → `/usr/local/bin/`
+- Static web files → `/photon_infer/web/static/`
+- Core library → `/usr/local/lib/`
+
+To uninstall:
+```bash
+cd build
+sudo cmake --build . --target uninstall
 ```
 
 #### Option 2: Use Docker (Recommended)
