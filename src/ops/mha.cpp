@@ -11,7 +11,6 @@
 
 #ifdef PHOTON_USE_CUDA
 #include "photon/ops/kernels/cuda/mha_kernel.cuh"
-#include "photon/ops/kernels/cuda/batched_mha_kernel.cuh"
 #endif
 
 namespace photon {

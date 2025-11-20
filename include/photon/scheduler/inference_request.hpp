@@ -220,6 +220,66 @@ class InferenceRequest {
   }
 
   /**
+   * @brief Get next chunk size for chunked prefill
+   *
+   * For prefill: returns min(chunk_size, remaining_prefill_tokens)
+   * For decode: returns 1
+   *
+   * @param chunk_size Maximum chunk size (default 256 tokens)
+   */
+  i32 get_next_chunk_size(i32 chunk_size = 256) const {
+    if (is_prefill()) {
+      return std::min(chunk_size, prefill_remaining());
+    } else {
+      return 1;  // Decode always processes 1 token at a time
+    }
+  }
+
+  /**
+   * @brief Get tokens for next chunk
+   *
+   * Returns a vector of tokens to process in this iteration:
+   * - Prefill: chunk of prompt tokens (up to chunk_size)
+   * - Decode: single generated token
+   */
+  std::vector<i32> get_next_chunk_tokens(i32 chunk_size = 256) const {
+    std::vector<i32> tokens;
+    i32 chunk = get_next_chunk_size(chunk_size);
+
+    if (is_prefill()) {
+      // Return chunk from prompt
+      i32 start = num_computed_tokens_;
+      i32 end = start + chunk;
+      tokens.reserve(chunk);
+      for (i32 i = start; i < end; ++i) {
+        tokens.push_back(prompt_tokens_[i]);
+      }
+    } else {
+      // Return last generated token (or last prompt token for first decode)
+      tokens.push_back(next_token());
+    }
+
+    return tokens;
+  }
+
+  /**
+   * @brief Get positions for next chunk
+   *
+   * Returns position indices for each token in the chunk
+   */
+  std::vector<i32> get_next_chunk_positions(i32 chunk_size = 256) const {
+    std::vector<i32> positions;
+    i32 chunk = get_next_chunk_size(chunk_size);
+
+    positions.reserve(chunk);
+    for (i32 i = 0; i < chunk; ++i) {
+      positions.push_back(num_computed_tokens_ + i);
+    }
+
+    return positions;
+  }
+
+  /**
    * @brief Preempt this request (pause execution)
    */
   void preempt() {
