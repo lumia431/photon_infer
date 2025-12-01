@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file error.hpp
  * @brief Error handling system using Result<T, E> pattern
@@ -10,8 +18,6 @@
  * a type-safe way to propagate errors through the call stack.
  */
 
-#ifndef PHOTON_CORE_ERROR_HPP
-#define PHOTON_CORE_ERROR_HPP
 
 #include <exception>
 #include <string>
@@ -454,4 +460,3 @@ template <typename T>
 
 }  // namespace photon
 
-#endif  // PHOTON_CORE_ERROR_HPP

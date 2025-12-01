@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
+#pragma once
+
 /**
  * @file types.hpp
  * @brief Fundamental type definitions and concepts for PhotonInfer
@@ -8,9 +17,6 @@
  * This file provides modern C++20 type definitions, concepts, and traits
  * that form the foundation of the PhotonInfer framework.
  */
-
-#ifndef PHOTON_CORE_TYPES_HPP
-#define PHOTON_CORE_TYPES_HPP
 
 #include <concepts>
 #include <cstddef>
@@ -309,4 +315,3 @@ inline constexpr DataType cpp_type_to_data_type_v = CppTypeToDataType<T>::value;
 
 }  // namespace photon
 
-#endif  // PHOTON_CORE_TYPES_HPP

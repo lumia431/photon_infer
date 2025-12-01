@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file buffer.hpp
  * @brief Memory buffer abstraction with device-agnostic interface
@@ -10,8 +18,6 @@
  * device memory.
  */
 
-#ifndef PHOTON_CORE_BUFFER_HPP
-#define PHOTON_CORE_BUFFER_HPP
 
 #include <cstring>
 #include <memory>
@@ -361,4 +367,3 @@ class Buffer {
 
 }  // namespace photon
 
-#endif  // PHOTON_CORE_BUFFER_HPP

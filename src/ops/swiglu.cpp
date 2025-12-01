@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file swiglu.cpp
  * @brief SwiGLU activation operator implementation
@@ -6,6 +13,10 @@
 
 #include "photon/ops/swiglu.hpp"
 #include "photon/ops/kernels/swiglu_kernel.hpp"
+
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/swiglu_kernel.cuh"
+#endif
 
 namespace photon {
 
@@ -29,17 +40,19 @@ Result<void> SwiGLUOp::forward(const Tensor& input1, const Tensor& input2, Tenso
     return Err<void>(ErrorCode::InvalidDtype, "Input1 must be Float32");
   }
 
-  if (input1.ndim() != 1) {
+  // Support both 1D [hidden_dim] and 2D [batch, hidden_dim]
+  if (input1.ndim() != 1 && input1.ndim() != 2) {
     return Err<void>(ErrorCode::InvalidShape,
-                    "Input1 must be 1D [hidden_dim]");
+                    "Input1 must be 1D [hidden_dim] or 2D [batch, hidden_dim]");
   }
 
-  if (input1.dim(0) != hidden_dim_) {
+  i32 input1_last_dim = input1.ndim() == 1 ? input1.dim(0) : input1.dim(1);
+  if (input1_last_dim != hidden_dim_) {
     return Err<void>(
         ErrorCode::ShapeMismatch,
-        "Input1 dimension mismatch: expected " +
+        "Input1 last dimension mismatch: expected " +
             std::to_string(hidden_dim_) + ", got " +
-            std::to_string(input1.dim(0)));
+            std::to_string(input1_last_dim));
   }
 
   // Validate input2 tensor
@@ -51,17 +64,25 @@ Result<void> SwiGLUOp::forward(const Tensor& input1, const Tensor& input2, Tenso
     return Err<void>(ErrorCode::InvalidDtype, "Input2 must be Float32");
   }
 
-  if (input2.ndim() != 1) {
+  if (input2.ndim() != input1.ndim()) {
     return Err<void>(ErrorCode::InvalidShape,
-                    "Input2 must be 1D [hidden_dim]");
+                    "Input2 must have same ndim as input1");
   }
 
-  if (input2.dim(0) != hidden_dim_) {
-    return Err<void>(
-        ErrorCode::ShapeMismatch,
-        "Input2 dimension mismatch: expected " +
-            std::to_string(hidden_dim_) + ", got " +
-            std::to_string(input2.dim(0)));
+  if (input2.ndim() == 1) {
+    if (input2.dim(0) != hidden_dim_) {
+      return Err<void>(
+          ErrorCode::ShapeMismatch,
+          "Input2 dimension mismatch: expected " +
+              std::to_string(hidden_dim_) + ", got " +
+              std::to_string(input2.dim(0)));
+    }
+  } else {
+    if (input2.dim(0) != input1.dim(0) || input2.dim(1) != hidden_dim_) {
+      return Err<void>(
+          ErrorCode::ShapeMismatch,
+          "Input2 shape mismatch");
+    }
   }
 
   // Validate output tensor
@@ -73,17 +94,25 @@ Result<void> SwiGLUOp::forward(const Tensor& input1, const Tensor& input2, Tenso
     return Err<void>(ErrorCode::InvalidDtype, "Output must be Float32");
   }
 
-  if (output.ndim() != 1) {
+  if (output.ndim() != input1.ndim()) {
     return Err<void>(ErrorCode::InvalidShape,
-                    "Output must be 1D [hidden_dim]");
+                    "Output must have same ndim as inputs");
   }
 
-  if (output.dim(0) != hidden_dim_) {
-    return Err<void>(
-        ErrorCode::ShapeMismatch,
-        "Output dimension mismatch: expected " +
-            std::to_string(hidden_dim_) + ", got " +
-            std::to_string(output.dim(0)));
+  if (output.ndim() == 1) {
+    if (output.dim(0) != hidden_dim_) {
+      return Err<void>(
+          ErrorCode::ShapeMismatch,
+          "Output dimension mismatch: expected " +
+              std::to_string(hidden_dim_) + ", got " +
+              std::to_string(output.dim(0)));
+    }
+  } else {
+    if (output.dim(0) != input1.dim(0) || output.dim(1) != hidden_dim_) {
+      return Err<void>(
+          ErrorCode::ShapeMismatch,
+          "Output shape mismatch");
+    }
   }
 
   // Dispatch to device-specific implementation
@@ -109,23 +138,67 @@ Result<void> SwiGLUOp::forward_cpu(const Tensor& input1, const Tensor& input2, T
   std::span<const f32> input2_data(input2.ptr<f32>(), input2.size());
   std::span<f32> output_data(output.ptr<f32>(), output.size());
 
-  // Dispatch based on implementation choice
-  if (use_naive_) {
-    kernels::swiglu_naive<f32>(
-        input1_data, input2_data, output_data,
-        hidden_dim_);
-    return Ok();
+  if (input1.ndim() == 1) {
+    // Single vector
+    if (use_naive_) {
+      kernels::swiglu_naive<f32>(
+          input1_data, input2_data, output_data,
+          hidden_dim_);
+      return Ok();
+    } else {
+      return kernels::swiglu_eigen<f32>(
+          input1_data, input2_data, output_data,
+          hidden_dim_);
+    }
   } else {
-    return kernels::swiglu_eigen<f32>(
-        input1_data, input2_data, output_data,
-        hidden_dim_);
+    // Batched: process each row
+    i32 batch_size = input1.dim(0);
+    for (i32 b = 0; b < batch_size; ++b) {
+      const f32* in1_row = input1.ptr<f32>() + b * hidden_dim_;
+      const f32* in2_row = input2.ptr<f32>() + b * hidden_dim_;
+      f32* out_row = output.ptr<f32>() + b * hidden_dim_;
+
+      std::span<const f32> in1_span(in1_row, hidden_dim_);
+      std::span<const f32> in2_span(in2_row, hidden_dim_);
+      std::span<f32> out_span(out_row, hidden_dim_);
+
+      if (use_naive_) {
+        kernels::swiglu_naive<f32>(
+            in1_span, in2_span, out_span,
+            hidden_dim_);
+      } else {
+        auto result = kernels::swiglu_eigen<f32>(
+            in1_span, in2_span, out_span,
+            hidden_dim_);
+        if (!result) return result;
+      }
+    }
+    return Ok();
   }
 }
 
 #ifdef PHOTON_USE_CUDA
 Result<void> SwiGLUOp::forward_cuda(const Tensor& input1, const Tensor& input2, Tensor& output) {
-  return Err<void>(ErrorCode::NotImplemented,
-                  "CUDA swiglu not yet implemented");
+  if (input1.ndim() == 1) {
+    // Single vector
+    std::span<const f32> input1_data(input1.ptr<f32>(), input1.size());
+    std::span<const f32> input2_data(input2.ptr<f32>(), input2.size());
+    std::span<f32> output_data(output.ptr<f32>(), output.size());
+
+    return kernels::cuda::swiglu_cuda_launch(
+        input1_data, input2_data, output_data,
+        hidden_dim_, nullptr);
+  } else {
+    // Batched: use true batched kernel
+    i32 batch_size = input1.dim(0);
+    return kernels::cuda::swiglu_batched_cuda_launch(
+        input1.ptr<f32>(),
+        input2.ptr<f32>(),
+        output.ptr<f32>(),
+        batch_size,
+        hidden_dim_,
+        nullptr);
+  }
 }
 #endif
 

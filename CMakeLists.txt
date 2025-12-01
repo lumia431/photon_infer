@@ -12,7 +12,7 @@ project(
 # ============================================================================
 option(PHOTON_BUILD_TESTS "Build unit tests" ON)
 option(PHOTON_BUILD_EXAMPLES "Build examples" ON)
-option(PHOTON_BUILD_CUDA "Build with CUDA support" ON)
+option(PHOTON_BUILD_CUDA "Build with CUDA support" ON)  # Default ON for CUDA
 option(PHOTON_BUILD_SHARED "Build shared libraries" OFF)
 option(PHOTON_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(PHOTON_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)

@@ -6,7 +6,9 @@
 file(GLOB_RECURSE PHOTON_CORE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/model/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/arch/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/io/*.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ops/*.cpp
 )
 
@@ -15,7 +17,9 @@ if(PHOTON_BUILD_CUDA)
   file(GLOB_RECURSE PHOTON_CUDA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/core/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/ops/*.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/ops/kernels/cuda/*.cu
   )
+  message(STATUS "CUDA sources found: ${PHOTON_CUDA_SOURCES}")
 endif()
 
 # Create the main library

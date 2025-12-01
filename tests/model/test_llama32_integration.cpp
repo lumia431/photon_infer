@@ -1,5 +1,5 @@
-#include "photon/model/model_loader.hpp"
-#include "photon/model/tokenizer.hpp"
+#include "photon/io/model_loader.hpp"
+#include "photon/io/tokenizer.hpp"
 #include <gtest/gtest.h>
 #include <filesystem>
 

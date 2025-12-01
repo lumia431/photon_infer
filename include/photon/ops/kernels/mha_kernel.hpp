@@ -1,5 +1,11 @@
-#ifndef PHOTON_OPS_KERNELS_MHA_KERNEL_HPP
-#define PHOTON_OPS_KERNELS_MHA_KERNEL_HPP
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 
 #include <photon/core/error.hpp>
 #include <photon/core/types.hpp>
@@ -289,4 +295,3 @@ Result<void> mha_eigen(
 
 }  // namespace photon::kernels
 
-#endif  // PHOTON_OPS_KERNELS_MHA_KERNEL_HPP

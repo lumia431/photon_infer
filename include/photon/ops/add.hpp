@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file add.hpp
  * @brief Element-wise addition operator for residual connections
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_ADD_HPP
-#define PHOTON_OPS_ADD_HPP
 
 #include "operator.hpp"
 #include "photon/core/tensor.hpp"
@@ -104,4 +110,3 @@ static_assert(BinaryOperator<AddOp>, "AddOp must satisfy BinaryOperator concept"
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_ADD_HPP

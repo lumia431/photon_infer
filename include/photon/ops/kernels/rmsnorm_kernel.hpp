@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rmsnorm_kernel.hpp
  * @brief CPU kernels for RMS normalization
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_KERNELS_RMSNORM_KERNEL_HPP
-#define PHOTON_OPS_KERNELS_RMSNORM_KERNEL_HPP
 
 #include <cmath>
 #include <span>
@@ -274,4 +280,3 @@ Result<void> rmsnorm_batch_eigen(
 
 }  // namespace photon::kernels
 
-#endif  // PHOTON_OPS_KERNELS_RMSNORM_KERNEL_HPP

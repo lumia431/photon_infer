@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rmsnorm.hpp
  * @brief RMS normalization operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_RMSNORM_HPP
-#define PHOTON_OPS_RMSNORM_HPP
 
 #include "operator.hpp"
 #include "photon/core/tensor.hpp"
@@ -101,9 +107,13 @@ class RMSNormOp : public ParameterizedOperator<RMSNormOp> {
                       "RMSNorm weight must be Float32");
     }
 
+    // Auto-convert weight to operator's device if needed
     if (weight.device() != device_) {
-      return Err<void>(ErrorCode::DeviceMismatch,
-                      "Weight device does not match operator device");
+      auto converted = weight.to(device_);
+      if (!converted) {
+        return Err<void>(converted.error());
+      }
+      weight = std::move(converted.value());
     }
 
     weights_[0] = std::move(weight);
@@ -187,4 +197,3 @@ static_assert(UnaryOperator<RMSNormOp>, "RMSNormOp must satisfy UnaryOperator co
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_RMSNORM_HPP

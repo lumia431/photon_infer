@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file rope.hpp
  * @brief Rotary Position Embedding (RoPE) operator
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_ROPE_HPP
-#define PHOTON_OPS_ROPE_HPP
 
 #include <vector>
 #include "operator.hpp"
@@ -89,6 +95,11 @@ class RoPEOp : public OperatorBase<RoPEOp> {
         use_naive_(use_naive) {}
 
   /**
+   * @brief Destructor to cleanup CUDA resources
+   */
+  ~RoPEOp();
+
+  /**
    * @brief Initialize the operator and precompute sin/cos cache
    */
   Result<void> init_impl();
@@ -170,6 +181,12 @@ class RoPEOp : public OperatorBase<RoPEOp> {
   std::vector<f32> sin_cache_;
   std::vector<f32> cos_cache_;
 
+#ifdef PHOTON_USE_CUDA
+  // CUDA-specific cache buffers
+  f32* cuda_sin_cache_ = nullptr;
+  f32* cuda_cos_cache_ = nullptr;
+#endif
+
   /**
    * @brief CPU forward implementation
    */
@@ -188,4 +205,3 @@ static_assert(Operator<RoPEOp>, "RoPEOp must satisfy Operator concept");
 
 }  // namespace photon
 
-#endif  // PHOTON_OPS_ROPE_HPP

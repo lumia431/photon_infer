@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file tensor.hpp
  * @brief Multi-dimensional tensor abstraction for deep learning
@@ -9,14 +17,12 @@
  * with shape management, type safety, and device abstraction. Tensors are built
  * on top of Buffers and integrate with Eigen for efficient linear algebra.
  *
- * Design Philosophy (inspired by KuiperInfer):
+ * Design Philosophy (inspired by standard):
  * - Tensor manages memory, shape, and device information
  * - Use Eigen::Map for zero-copy matrix/vector views in operators
  * - Separation of concerns: storage (Tensor) vs computation (Eigen)
  */
 
-#ifndef PHOTON_CORE_TENSOR_HPP
-#define PHOTON_CORE_TENSOR_HPP
 
 #include <algorithm>
 #include <initializer_list>
@@ -58,7 +64,7 @@ namespace photon {
  *
  * Design notes:
  * - Tensor owns memory (move-only semantics)
- * - Eigen::Map provides zero-copy views (like Armadillo in KuiperInfer)
+ * - Eigen::Map provides zero-copy views (like Armadillo in standard)
  * - Shape is stored in row-major order (C-style, compatible with NumPy)
  */
 class Tensor {
@@ -80,14 +86,14 @@ class Tensor {
    * @return Result containing Tensor or error
    */
   [[nodiscard]] static Result<Tensor> create(
-      std::vector<int32_t> dims, DataType dtype,
+      std::vector<i32> dims, DataType dtype,
       DeviceType device = DeviceType::CPU, bool need_alloc = true);
 
   /**
    * @brief Create a tensor and initialize with zeros
    */
   [[nodiscard]] static Result<Tensor> zeros(
-      std::vector<int32_t> dims, DataType dtype,
+      std::vector<i32> dims, DataType dtype,
       DeviceType device = DeviceType::CPU);
 
   /**
@@ -102,7 +108,7 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] static Result<Tensor> from_matrix(
-      int32_t rows, int32_t cols, const std::vector<T>& data,
+      i32 rows, i32 cols, const std::vector<T>& data,
       DeviceType device = DeviceType::CPU);
 
   // Disable copy (Tensor owns memory)
@@ -119,17 +125,46 @@ class Tensor {
    */
   Tensor& operator=(Tensor&& other) noexcept = default;
 
+  /**
+   * @brief Copy tensor to a different device
+   *
+   * @param target_device Target device (CPU or CUDA)
+   * @return Result containing new tensor on target device
+   */
+  [[nodiscard]] Result<Tensor> to(DeviceType target_device) const;
+
+  /**
+   * @brief Create a view (slice) of this tensor with shared memory
+   *
+   * Creates a new tensor that shares the underlying buffer but with different
+   * dimensions. This is a zero-copy operation - the slice points to the same
+   * memory as the original tensor.
+   *
+   * **IMPORTANT**: The original tensor must outlive the slice!
+   *
+   * @param offset_rows Offset in the first dimension (for 2D tensors)
+   * @param num_rows Number of rows in the slice
+   * @return Result containing the sliced tensor view
+   *
+   * Example:
+   * ```cpp
+   * // Original: [1024, 512]
+   * auto slice = tensor.slice(256, 256);  // Get rows [256:512], shape [256, 512]
+   * ```
+   */
+  [[nodiscard]] Result<Tensor> slice(i32 offset_rows, i32 num_rows) const;
+
   // ========== Getters ==========
 
   /**
    * @brief Get number of dimensions
    */
-  [[nodiscard]] int32_t ndim() const noexcept { return static_cast<int32_t>(dims_.size()); }
+  [[nodiscard]] i32 ndim() const noexcept { return static_cast<i32>(dims_.size()); }
 
   /**
    * @brief Get dimension at index
    */
-  [[nodiscard]] int32_t dim(int32_t index) const {
+  [[nodiscard]] i32 dim(i32 index) const {
     if (index < 0 || index >= ndim()) {
       return 0;
     }
@@ -139,7 +174,7 @@ class Tensor {
   /**
    * @brief Get all dimensions
    */
-  [[nodiscard]] const std::vector<int32_t>& dims() const noexcept {
+  [[nodiscard]] const std::vector<i32>& dims() const noexcept {
     return dims_;
   }
 
@@ -178,21 +213,25 @@ class Tensor {
   // ========== Raw Pointer Access ==========
 
   /**
-   * @brief Get raw data pointer
+   * @brief Get raw data pointer (supports sliced views)
    */
-  [[nodiscard]] void* data() noexcept { return buffer_.data(); }
+  [[nodiscard]] void* data() noexcept {
+    return data_ptr_ ? data_ptr_ : buffer_.data();
+  }
 
   /**
-   * @brief Get const raw data pointer
+   * @brief Get const raw data pointer (supports sliced views)
    */
-  [[nodiscard]] const void* data() const noexcept { return buffer_.data(); }
+  [[nodiscard]] const void* data() const noexcept {
+    return data_ptr_ ? data_ptr_ : buffer_.data();
+  }
 
   /**
    * @brief Get typed data pointer
    */
   template <typename T>
   [[nodiscard]] T* ptr() noexcept {
-    return buffer_.data_as<T>();
+    return reinterpret_cast<T*>(data());
   }
 
   /**
@@ -200,39 +239,39 @@ class Tensor {
    */
   template <typename T>
   [[nodiscard]] const T* ptr() const noexcept {
-    return buffer_.data_as<T>();
+    return reinterpret_cast<const T*>(data());
   }
 
   /**
    * @brief Get typed data pointer with offset
    */
   template <typename T>
-  [[nodiscard]] T* ptr(int64_t offset) noexcept {
-    return buffer_.data_as<T>() + offset;
+  [[nodiscard]] T* ptr(i64 offset) noexcept {
+    return reinterpret_cast<T*>(data()) + offset;
   }
 
   /**
    * @brief Get const typed data pointer with offset
    */
   template <typename T>
-  [[nodiscard]] const T* ptr(int64_t offset) const noexcept {
-    return buffer_.data_as<T>() + offset;
+  [[nodiscard]] const T* ptr(i64 offset) const noexcept {
+    return reinterpret_cast<const T*>(data()) + offset;
   }
 
   /**
    * @brief Index into tensor (flat index)
    */
   template <typename T>
-  [[nodiscard]] T& index(int64_t offset) {
-    return buffer_.data_as<T>()[offset];
+  [[nodiscard]] T& index(i64 offset) {
+    return reinterpret_cast<T*>(data())[offset];
   }
 
   /**
    * @brief Const index into tensor
    */
   template <typename T>
-  [[nodiscard]] const T& index(int64_t offset) const {
-    return buffer_.data_as<T>()[offset];
+  [[nodiscard]] const T& index(i64 offset) const {
+    return reinterpret_cast<const T*>(data())[offset];
   }
 
   // ========== Eigen Integration (Zero-Copy Views) ==========
@@ -307,7 +346,7 @@ class Tensor {
   /**
    * @brief Reshape tensor (must have same total size)
    */
-  [[nodiscard]] Result<void> reshape(const std::vector<int32_t>& new_dims);
+  [[nodiscard]] Result<void> reshape(const std::vector<i32>& new_dims);
 
   /**
    * @brief Clone tensor (deep copy)
@@ -317,7 +356,7 @@ class Tensor {
   /**
    * @brief Reset tensor with new shape and type
    */
-  void reset(DataType dtype, const std::vector<int32_t>& dims);
+  void reset(DataType dtype, const std::vector<i32>& dims);
 
   /**
    * @brief Copy data to CPU
@@ -341,21 +380,30 @@ class Tensor {
 
  private:
   Buffer buffer_;                ///< Underlying memory buffer
-  std::vector<int32_t> dims_;    ///< Tensor dimensions
+  std::vector<i32> dims_;    ///< Tensor dimensions
   usize size_ = 0;               ///< Total number of elements
   DataType dtype_ = DataType::Float32;   ///< Element data type
   DeviceType device_ = DeviceType::CPU;  ///< Device where data resides
+  void* data_ptr_ = nullptr;     ///< Pointer offset for sliced views
 
   /**
    * @brief Private constructor from buffer
    */
-  Tensor(Buffer&& buffer, std::vector<int32_t> dims, DataType dtype,
+  Tensor(Buffer&& buffer, std::vector<i32> dims, DataType dtype,
          DeviceType device);
+
+  /**
+   * @brief Private constructor for creating a view (slice)
+   * @param parent Parent tensor to create view from
+   * @param dims New dimensions for the view
+   * @param data_offset Byte offset into parent's buffer
+   */
+  Tensor(const Tensor& parent, std::vector<i32> dims, usize data_offset);
 
   /**
    * @brief Compute total size from dimensions
    */
-  static usize compute_size(const std::vector<int32_t>& dims);
+  static usize compute_size(const std::vector<i32>& dims);
 };
 
 // ============================================================================
@@ -366,7 +414,7 @@ template <typename T>
 Result<Tensor> Tensor::from_vector(const std::vector<T>& data,
                                    DeviceType device) {
   DataType dtype = cpp_type_to_data_type_v<T>;
-  std::vector<int32_t> dims = {static_cast<int32_t>(data.size())};
+  std::vector<i32> dims = {static_cast<i32>(data.size())};
 
   auto result = create(dims, dtype, device);
   if (!result) {
@@ -387,7 +435,7 @@ Result<Tensor> Tensor::from_vector(const std::vector<T>& data,
 }
 
 template <typename T>
-Result<Tensor> Tensor::from_matrix(int32_t rows, int32_t cols,
+Result<Tensor> Tensor::from_matrix(i32 rows, i32 cols,
                                    const std::vector<T>& data,
                                    DeviceType device) {
   if (data.size() != static_cast<usize>(rows * cols)) {
@@ -398,7 +446,7 @@ Result<Tensor> Tensor::from_matrix(int32_t rows, int32_t cols,
   }
 
   DataType dtype = cpp_type_to_data_type_v<T>;
-  std::vector<int32_t> dims = {rows, cols};
+  std::vector<i32> dims = {rows, cols};
 
   auto result = create(dims, dtype, device);
   if (!result) {
@@ -419,4 +467,3 @@ Result<Tensor> Tensor::from_matrix(int32_t rows, int32_t cols,
 
 }  // namespace photon
 
-#endif  // PHOTON_CORE_TENSOR_HPP

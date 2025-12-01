@@ -1,5 +1,5 @@
-#include "photon/model/model_loader.hpp"
-#include "photon/model/config.hpp"
+#include "photon/io/model_loader.hpp"
+#include "photon/arch/config.hpp"
 #include <gtest/gtest.h>
 #include <fstream>
 #include <filesystem>

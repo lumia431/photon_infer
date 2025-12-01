@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+
 /**
  * @file embedding.cpp
  * @brief Embedding operator implementation
@@ -6,6 +13,10 @@
 
 #include "photon/ops/embedding.hpp"
 #include "photon/ops/kernels/embedding_kernel.hpp"
+
+#ifdef PHOTON_USE_CUDA
+#include "photon/ops/kernels/cuda/embedding_kernel.cuh"
+#endif
 
 namespace photon {
 
@@ -95,8 +106,20 @@ Result<void> EmbeddingOp::forward_cpu(const Tensor& input, Tensor& output) {
 
 #ifdef PHOTON_USE_CUDA
 Result<void> EmbeddingOp::forward_cuda(const Tensor& input, Tensor& output) {
-  return Err<void>(ErrorCode::NotImplemented,
-                  "CUDA embedding not yet implemented");
+  // Get weight tensor
+  const Tensor& weight = weights_[0];
+
+  // Create spans for CUDA kernel launch
+  std::span<const i32> tokens(input.ptr<i32>(), input.size());
+  std::span<const f32> weight_data(weight.ptr<f32>(), weight.size());
+  std::span<f32> output_data(output.ptr<f32>(), output.size());
+
+  // Launch CUDA kernel (using standard approach)
+  i32 num_tokens = static_cast<i32>(input.size());
+  return kernels::cuda::embedding_cuda_launch(
+      tokens, weight_data, output_data,
+      num_tokens, vocab_size_, embedding_dim_,
+      nullptr);  // stream = nullptr for now
 }
 #endif
 

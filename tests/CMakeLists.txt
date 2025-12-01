@@ -9,12 +9,14 @@ add_executable(photon_tests
   core/test_allocator.cpp
   core/test_buffer.cpp
   core/test_tensor.cpp
+  core/test_quant.cpp
   model/test_model_loader.cpp
   model/test_tokenizer.cpp
   model/test_llama32_integration.cpp
   model/test_llama_model.cpp
   ops/test_embedding.cpp
   ops/test_matmul.cpp
+  ops/test_matmul_quant.cpp
   ops/test_rmsnorm.cpp
   ops/test_rope.cpp
   ops/test_swiglu.cpp
@@ -44,3 +46,8 @@ gtest_discover_tests(photon_tests
 
 # Add test target
 add_test(NAME photon_tests COMMAND photon_tests)
+
+# Add CUDA tests subdirectory
+if(PHOTON_BUILD_CUDA)
+  add_subdirectory(cuda)
+endif()

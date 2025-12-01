@@ -1,11 +1,17 @@
+/*
+ * Copyright (c) 2025 Lummy
+ *
+ * This software is released under the MIT License.
+ * See the LICENSE file in the project root for full details.
+ */
+#pragma once
+
 /**
  * @file embedding_kernel.hpp
  * @brief CPU kernels for embedding operations
  * @version 0.1.0
  */
 
-#ifndef PHOTON_OPS_KERNELS_EMBEDDING_KERNEL_HPP
-#define PHOTON_OPS_KERNELS_EMBEDDING_KERNEL_HPP
 
 #include <span>
 #include <Eigen/Core>
@@ -131,4 +137,3 @@ void embedding_forward_cpu_unchecked(
 
 }  // namespace photon::kernels
 
-#endif  // PHOTON_OPS_KERNELS_EMBEDDING_KERNEL_HPP
