@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+*.tar.gz
+
+# Results and logs
+results/
+*.log
+
+# Model files
+*.bin
+*.safetensors
+*.model
+*.pth
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary
+.cache/
+tmp/
+__pycache__/
