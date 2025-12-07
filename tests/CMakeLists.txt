@@ -50,4 +50,29 @@ add_test(NAME photon_tests COMMAND photon_tests)
 # Add CUDA tests subdirectory
 if(PHOTON_BUILD_CUDA)
   add_subdirectory(cuda)
+
+  # ThrustAllocator unit tests (separate executable for focused testing)
+  add_executable(test_thrust_allocator
+    core/test_thrust_allocator.cpp
+  )
+
+  target_link_libraries(test_thrust_allocator
+    PRIVATE
+      photon_core
+      GTest::gtest
+      GTest::gtest_main
+  )
+
+  target_include_directories(test_thrust_allocator
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/include
+  )
+
+  set_target_properties(test_thrust_allocator PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+  )
+
+  gtest_discover_tests(test_thrust_allocator
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  )
 endif()

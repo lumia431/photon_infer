@@ -15,7 +15,11 @@
 
 #include <cmath>
 #include <span>
+
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Core>
+#endif
+
 #include "photon/core/error.hpp"
 #include "photon/core/types.hpp"
 
@@ -160,6 +164,7 @@ void rope_naive(
   }
 }
 
+#ifdef PHOTON_USE_EIGEN
 // ============================================================================
 // Optimized Implementation (Eigen)
 // ============================================================================
@@ -233,6 +238,7 @@ Result<void> rope_eigen(
 
   return Ok();
 }
+#endif
 
 }  // namespace photon::kernels
 

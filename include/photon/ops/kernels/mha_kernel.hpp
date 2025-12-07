@@ -13,7 +13,10 @@
 #include <span>
 #include <cmath>
 #include <algorithm>
+
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Dense>
+#endif
 
 namespace photon::kernels {
 
@@ -51,6 +54,7 @@ void softmax_naive(std::span<const T> input, std::span<T> output, i32 len) noexc
   }
 }
 
+#ifdef PHOTON_USE_EIGEN
 /**
  * @brief Softmax kernel (Eigen implementation)
  *
@@ -73,6 +77,7 @@ Result<void> softmax_eigen(std::span<const T> input, std::span<T> output, i32 le
 
   return Ok();
 }
+#endif
 
 /**
  * @brief Dot product kernel (naive implementation)
@@ -88,6 +93,7 @@ T dot_product_naive(std::span<const T> a, std::span<const T> b, i32 len) noexcep
   return sum;
 }
 
+#ifdef PHOTON_USE_EIGEN
 /**
  * @brief Dot product kernel (Eigen implementation)
  */
@@ -101,6 +107,7 @@ T dot_product_eigen(std::span<const T> a, std::span<const T> b, i32 len) noexcep
 
   return a_vec.dot(b_vec);
 }
+#endif
 
 /**
  * @brief Weighted sum accumulation kernel (naive)
@@ -121,6 +128,7 @@ void weighted_sum_naive(std::span<const T> value, T weight,
   }
 }
 
+#ifdef PHOTON_USE_EIGEN
 /**
  * @brief Weighted sum accumulation kernel (Eigen)
  */
@@ -138,6 +146,7 @@ Result<void> weighted_sum_eigen(std::span<const T> value, T weight,
 
   return Ok();
 }
+#endif
 
 /**
  * @brief Multi-Head Attention kernel (naive implementation)
@@ -220,6 +229,7 @@ void mha_naive(
   }
 }
 
+#ifdef PHOTON_USE_EIGEN
 /**
  * @brief Multi-Head Attention kernel (Eigen implementation)
  *
@@ -292,6 +302,29 @@ Result<void> mha_eigen(
 
   return Ok();
 }
+#else
+/**
+ * @brief Multi-Head Attention kernel (Eigen implementation disabled)
+ *
+ * This function is only available when PHOTON_USE_EIGEN is enabled.
+ */
+template <FloatingPoint T>
+Result<void> mha_eigen(
+    std::span<const T> /*query*/,
+    std::span<const T> /*key_cache*/,
+    std::span<const T> /*value_cache*/,
+    std::span<T> /*output*/,
+    std::span<T> /*score*/,
+    i32 /*pos*/,
+    i32 /*kv_dim*/,
+    i32 /*head_num*/,
+    i32 /*head_size*/,
+    i32 /*seq_len*/,
+    i32 /*kv_mul*/) {
+  return Err<void>(ErrorCode::NotImplemented,
+                  "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+}
+#endif
 
 }  // namespace photon::kernels
 

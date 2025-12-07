@@ -17,7 +17,10 @@
 #include <photon/core/types.hpp>
 
 #include <span>
+
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Core>
+#endif
 
 namespace photon::kernels {
 
@@ -39,6 +42,7 @@ void add_naive(std::span<const T> input1, std::span<const T> input2,
   }
 }
 
+#ifdef PHOTON_USE_EIGEN
 /**
  * @brief Element-wise addition kernel (Eigen implementation)
  *
@@ -60,6 +64,7 @@ Result<void> add_eigen(std::span<const T> input1, std::span<const T> input2,
 
   return Ok();
 }
+#endif
 
 }  // namespace photon::kernels
 

@@ -146,9 +146,14 @@ Result<void> SwiGLUOp::forward_cpu(const Tensor& input1, const Tensor& input2, T
           hidden_dim_);
       return Ok();
     } else {
+#ifdef PHOTON_USE_EIGEN
       return kernels::swiglu_eigen<f32>(
           input1_data, input2_data, output_data,
           hidden_dim_);
+#else
+      return Err<void>(ErrorCode::NotImplemented,
+                      "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
     }
   } else {
     // Batched: process each row
@@ -167,10 +172,15 @@ Result<void> SwiGLUOp::forward_cpu(const Tensor& input1, const Tensor& input2, T
             in1_span, in2_span, out_span,
             hidden_dim_);
       } else {
+#ifdef PHOTON_USE_EIGEN
         auto result = kernels::swiglu_eigen<f32>(
             in1_span, in2_span, out_span,
             hidden_dim_);
         if (!result) return result;
+#else
+        return Err<void>(ErrorCode::NotImplemented,
+                        "Eigen implementation not available - rebuild with PHOTON_USE_EIGEN=ON");
+#endif
       }
     }
     return Ok();

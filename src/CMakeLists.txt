@@ -38,10 +38,17 @@ endif()
 # Link dependencies
 target_link_libraries(photon_core
   PUBLIC
-    Eigen3::Eigen
     glog::glog
     Threads::Threads
 )
+
+# Link Eigen if enabled
+if(PHOTON_USE_EIGEN)
+  target_link_libraries(photon_core
+    PUBLIC
+      Eigen3::Eigen
+  )
+endif()
 
 if(PHOTON_BUILD_CUDA)
   target_link_libraries(photon_core

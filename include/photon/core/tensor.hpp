@@ -30,7 +30,9 @@
 #include <span>
 #include <vector>
 
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Core>
+#endif
 
 #include "buffer.hpp"
 #include "error.hpp"
@@ -274,6 +276,7 @@ class Tensor {
     return reinterpret_cast<const T*>(data())[offset];
   }
 
+#ifdef PHOTON_USE_EIGEN
   // ========== Eigen Integration (Zero-Copy Views) ==========
 
   /**
@@ -340,6 +343,7 @@ class Tensor {
         const Eigen::Matrix<ScalarT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
         ptr<T>(), dims_[0], dims_[1]);
   }
+#endif
 
   // ========== Operations ==========
 

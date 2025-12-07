@@ -10,12 +10,19 @@ project(
 # ============================================================================
 # Build Options
 # ============================================================================
+# Set default build type to Release if not specified
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build (Debug or Release)" FORCE)
+  message(STATUS "Build type not specified, defaulting to Release")
+endif()
+
 option(PHOTON_BUILD_TESTS "Build unit tests" ON)
 option(PHOTON_BUILD_EXAMPLES "Build examples" ON)
 option(PHOTON_BUILD_CUDA "Build with CUDA support" ON)  # Default ON for CUDA
 option(PHOTON_BUILD_SHARED "Build shared libraries" OFF)
 option(PHOTON_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(PHOTON_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+option(PHOTON_USE_EIGEN "Use Eigen library for CPU operations" ON)  # Default ON
 
 # ============================================================================
 # C++ Standard and Compiler Requirements
@@ -110,8 +117,13 @@ endif()
 # ============================================================================
 
 # Eigen3 (for linear algebra)
-find_package(Eigen3 REQUIRED NO_MODULE)
-message(STATUS "Eigen3 version: ${Eigen3_VERSION}")
+if(PHOTON_USE_EIGEN)
+  find_package(Eigen3 REQUIRED NO_MODULE)
+  message(STATUS "Eigen3 version: ${Eigen3_VERSION}")
+  add_compile_definitions(PHOTON_USE_EIGEN)
+else()
+  message(STATUS "Eigen3 disabled")
+endif()
 
 # Google Test (for unit tests)
 if(PHOTON_BUILD_TESTS)
@@ -143,6 +155,9 @@ endif()
 # Demo executable
 add_subdirectory(demo)
 
+# Web server (currently disabled - work in progress)
+add_subdirectory(web)
+
 # Examples directory removed as per user request
 # if(PHOTON_BUILD_EXAMPLES)
 #   add_subdirectory(examples)
@@ -173,6 +188,7 @@ message(STATUS "  C++ Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VE
 message(STATUS "  Build Tests: ${PHOTON_BUILD_TESTS}")
 message(STATUS "  Build Examples: ${PHOTON_BUILD_EXAMPLES}")
 message(STATUS "  Build CUDA: ${PHOTON_BUILD_CUDA}")
+message(STATUS "  Use Eigen: ${PHOTON_USE_EIGEN}")
 message(STATUS "  Build Shared: ${PHOTON_BUILD_SHARED}")
 message(STATUS "  Enable ASAN: ${PHOTON_ENABLE_ASAN}")
 message(STATUS "  Enable UBSAN: ${PHOTON_ENABLE_UBSAN}")

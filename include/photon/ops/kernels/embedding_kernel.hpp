@@ -14,7 +14,11 @@
 
 
 #include <span>
+
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Core>
+#endif
+
 #include "photon/core/error.hpp"
 #include "photon/core/types.hpp"
 
@@ -24,6 +28,7 @@ namespace photon::kernels {
 // Embedding CPU Kernels
 // ============================================================================
 
+#ifdef PHOTON_USE_EIGEN
 /**
  * @brief CPU kernel for embedding lookup with bounds checking
  *
@@ -99,6 +104,7 @@ Result<void> embedding_forward_cpu(
 
   return Ok();
 }
+#endif
 
 /**
  * @brief Optimized batch embedding lookup (no bounds checking)
@@ -125,13 +131,20 @@ void embedding_forward_cpu_unchecked(
     const auto* src = weight.data() + token * embedding_dim;
     auto* dst = output.data() + i * embedding_dim;
 
-    // Vectorized copy
+#ifdef PHOTON_USE_EIGEN
+    // Vectorized copy using Eigen
     Eigen::Map<const Eigen::Matrix<EmbedType, Eigen::Dynamic, 1>> src_vec(
         src, embedding_dim);
     Eigen::Map<Eigen::Matrix<EmbedType, Eigen::Dynamic, 1>> dst_vec(
         dst, embedding_dim);
 
     dst_vec = src_vec;
+#else
+    // Manual copy when Eigen is disabled
+    for (i32 j = 0; j < embedding_dim; ++j) {
+      dst[j] = src[j];
+    }
+#endif
   }
 }
 

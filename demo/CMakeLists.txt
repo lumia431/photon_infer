@@ -56,33 +56,6 @@ install(TARGETS batched_infer_multi_prompts
   RUNTIME DESTINATION bin
 )
 
-# test_partitioned_attention demo executable
-add_executable(test_partitioned_attention
-  test_partitioned_attention.cpp
-)
-
-# Link against photon_core library
-target_link_libraries(test_partitioned_attention
-  PRIVATE
-    photon_core
-)
-
-# Include directories
-target_include_directories(test_partitioned_attention
-  PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-)
-
-# Set output directory
-set_target_properties(test_partitioned_attention PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
-# Install
-install(TARGETS test_partitioned_attention
-  RUNTIME DESTINATION bin
-)
-
 # compare_batching_methods demo executable
 add_executable(compare_batching_methods
   compare_batching_methods.cpp

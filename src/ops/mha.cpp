@@ -93,6 +93,14 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
   // Dispatch to appropriate kernel based on dtype and device
   if (device_ == DeviceType::CPU) {
     if (query.dtype() == DataType::Float32) {
+      // Create spans directly from tensors
+      std::span<const f32> query_span;
+      std::span<const f32> key_span;
+      std::span<const f32> value_span;
+      std::span<f32> output_span;
+      std::span<f32> score_span;
+
+#ifdef PHOTON_USE_EIGEN
       // Get const maps for inputs
       auto query_map = query.vector_map<f32>();
       auto key_map = key_cache.vector_map<f32>();
@@ -103,11 +111,18 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
       auto score_map = score.vector_map<f32>();
 
       // Create spans from Eigen maps
-      std::span<const f32> query_span(query_map.data(), query_map.size());
-      std::span<const f32> key_span(key_map.data(), key_map.size());
-      std::span<const f32> value_span(value_map.data(), value_map.size());
-      std::span<f32> output_span(output_map.data(), output_map.size());
-      std::span<f32> score_span(score_map.data(), score_map.size());
+      query_span = std::span<const f32>(query_map.data(), query_map.size());
+      key_span = std::span<const f32>(key_map.data(), key_map.size());
+      value_span = std::span<const f32>(value_map.data(), value_map.size());
+      output_span = std::span<f32>(output_map.data(), output_map.size());
+      score_span = std::span<f32>(score_map.data(), score_map.size());
+#else
+      query_span = std::span<const f32>(query.ptr<f32>(), query.size());
+      key_span = std::span<const f32>(key_cache.ptr<f32>(), key_cache.size());
+      value_span = std::span<const f32>(value_cache.ptr<f32>(), value_cache.size());
+      output_span = std::span<f32>(output.ptr<f32>(), output.size());
+      score_span = std::span<f32>(score.ptr<f32>(), score.size());
+#endif
 
       if (use_naive_) {
         kernels::mha_naive<f32>(
@@ -124,17 +139,32 @@ Result<void> MHAOp::forward(const Tensor& query, const Tensor& key_cache,
         }
       }
     } else if (query.dtype() == DataType::Float64) {
+      // Create spans directly from tensors
+      std::span<const f64> query_span;
+      std::span<const f64> key_span;
+      std::span<const f64> value_span;
+      std::span<f64> output_span;
+      std::span<f64> score_span;
+
+#ifdef PHOTON_USE_EIGEN
       auto query_map = query.vector_map<f64>();
       auto key_map = key_cache.vector_map<f64>();
       auto value_map = value_cache.vector_map<f64>();
       auto output_map = output.vector_map<f64>();
       auto score_map = score.vector_map<f64>();
 
-      std::span<const f64> query_span(query_map.data(), query_map.size());
-      std::span<const f64> key_span(key_map.data(), key_map.size());
-      std::span<const f64> value_span(value_map.data(), value_map.size());
-      std::span<f64> output_span(output_map.data(), output_map.size());
-      std::span<f64> score_span(score_map.data(), score_map.size());
+      query_span = std::span<const f64>(query_map.data(), query_map.size());
+      key_span = std::span<const f64>(key_map.data(), key_map.size());
+      value_span = std::span<const f64>(value_map.data(), value_map.size());
+      output_span = std::span<f64>(output_map.data(), output_map.size());
+      score_span = std::span<f64>(score_map.data(), score_map.size());
+#else
+      query_span = std::span<const f64>(query.ptr<f64>(), query.size());
+      key_span = std::span<const f64>(key_cache.ptr<f64>(), key_cache.size());
+      value_span = std::span<const f64>(value_cache.ptr<f64>(), value_cache.size());
+      output_span = std::span<f64>(output.ptr<f64>(), output.size());
+      score_span = std::span<f64>(score.ptr<f64>(), score.size());
+#endif
 
       if (use_naive_) {
         kernels::mha_naive<f64>(

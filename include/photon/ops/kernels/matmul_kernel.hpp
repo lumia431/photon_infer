@@ -14,7 +14,11 @@
 
 
 #include <span>
+
+#ifdef PHOTON_USE_EIGEN
 #include <Eigen/Core>
+#endif
+
 #include "photon/core/error.hpp"
 #include "photon/core/types.hpp"
 
@@ -124,6 +128,7 @@ void matmul_gemm_naive(
   }
 }
 
+#ifdef PHOTON_USE_EIGEN
 // ============================================================================
 // Optimized Implementation (Eigen)
 // ============================================================================
@@ -245,6 +250,7 @@ Result<void> matmul_gemm_eigen(
 
   return Ok();
 }
+#endif
 
 }  // namespace photon::kernels
 

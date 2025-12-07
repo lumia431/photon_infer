@@ -100,8 +100,15 @@ Result<void> EmbeddingOp::forward_cpu(const Tensor& input, Tensor& output) {
   std::span<f32> output_data(output.ptr<f32>(), output.size());
 
   // Call CPU kernel
+#ifdef PHOTON_USE_EIGEN
   return kernels::embedding_forward_cpu<i32, f32>(
       tokens, weight_data, output_data, vocab_size_, embedding_dim_);
+#else
+  // Use unchecked version when Eigen is disabled (assumes valid indices)
+  kernels::embedding_forward_cpu_unchecked<i32, f32>(
+      tokens, weight_data, output_data, embedding_dim_);
+  return Ok();
+#endif
 }
 
 #ifdef PHOTON_USE_CUDA

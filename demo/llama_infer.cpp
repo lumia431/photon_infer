@@ -28,48 +28,54 @@
 using namespace photon;
 using namespace photon::model;
 
-i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
-             const std::string& prompt, i32 max_tokens, bool print_output = true) {
-  auto tokens = tokenizer.encode(prompt);
-  if (tokens.empty()) {
+struct GenerationState {
+  i32 current_pos = 0;
+  std::vector<i32> all_tokens;
+  Tensor logits;
+};
+
+i32 generate_turn(LLaMAModel& model, const TikTokenizer& tokenizer,
+                  GenerationState& state, const std::string& prompt,
+                  i32 max_new_tokens, bool print_output = true) {
+  auto new_tokens = tokenizer.encode(prompt);
+  if (new_tokens.empty()) {
     std::cerr << "Error: Failed to encode prompt\n";
-    return 0;
+    return state.current_pos;
   }
 
-  tokens.insert(tokens.begin(), tokenizer.bos_id());
-  i32 prompt_len = static_cast<i32>(tokens.size());
+  // Add BOS token only for the first turn
+  if (state.all_tokens.empty()) {
+    state.all_tokens.push_back(tokenizer.bos_id());
+  }
+
+  // Append new prompt tokens
+  i32 start_pos = state.current_pos;
+  state.all_tokens.insert(state.all_tokens.end(), new_tokens.begin(), new_tokens.end());
 
   if (print_output) {
-    std::cout << "Prompt tokens: " << prompt_len << "\n";
+    std::cout << "Prompt tokens: " << new_tokens.size() << "\n";
+    std::cout << "Total context: " << state.all_tokens.size() << " tokens\n";
     std::cout << "Generating: " << std::flush;
   }
 
   const auto& config = model.config();
-  auto logits_result = Tensor::create({config.vocab_size}, DataType::Float32, DeviceType::CPU);
-  if (!logits_result) {
-    std::cerr << "Error: Failed to create logits buffer\n";
-    return 0;
-  }
-  Tensor logits = std::move(logits_result.value());
-
-  i32 pos = 0;
-  i32 next_token = -1;
   const f32 temperature = 0.8f;
+  i32 tokens_generated = 0;
+  i32 next_token = -1;
 
-  while (pos < max_tokens) {
-    i32 current_token = (pos < prompt_len) ? tokens[pos] : next_token;
-
-    if (pos >= prompt_len && print_output) {
-      std::cout << tokenizer.decode_token(current_token) << std::flush;
-    }
-
-    auto forward_result = model.forward(current_token, pos, logits);
+  // Process prompt tokens
+  for (size_t i = start_pos; i < state.all_tokens.size(); ++i) {
+    auto forward_result = model.forward(state.all_tokens[i], state.current_pos, state.logits);
     if (!forward_result) {
       std::cerr << "\nError during forward pass: " << forward_result.error().message() << "\n";
-      return pos;
+      return state.current_pos;
     }
+    state.current_pos++;
+  }
 
-    const f32* logits_ptr = logits.ptr<f32>();
+  // Generate new tokens
+  while (tokens_generated < max_new_tokens) {
+    const f32* logits_ptr = state.logits.ptr<f32>();
     std::vector<f32> probs(config.vocab_size);
     f32 max_logit = *std::max_element(logits_ptr, logits_ptr + config.vocab_size);
 
@@ -85,6 +91,7 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
 
     f32 rand_val = static_cast<f32>(rand()) / static_cast<f32>(RAND_MAX);
     f32 cumulative = 0.0f;
+    next_token = -1;
     for (i32 i = 0; i < config.vocab_size; ++i) {
       cumulative += probs[i];
       if (rand_val <= cumulative) {
@@ -93,16 +100,28 @@ i32 generate(LLaMAModel& model, const TikTokenizer& tokenizer,
       }
     }
 
-    if (next_token == tokenizer.eos_id() && pos >= prompt_len) {
+    if (next_token == tokenizer.eos_id()) {
       if (print_output) std::cout << std::flush;
       break;
     }
 
-    pos++;
+    if (print_output) {
+      std::cout << tokenizer.decode_token(next_token) << std::flush;
+    }
+
+    state.all_tokens.push_back(next_token);
+    tokens_generated++;
+
+    auto forward_result = model.forward(next_token, state.current_pos, state.logits);
+    if (!forward_result) {
+      std::cerr << "\nError during forward pass: " << forward_result.error().message() << "\n";
+      return state.current_pos;
+    }
+    state.current_pos++;
   }
 
   if (print_output) std::cout << "\n";
-  return pos;
+  return tokens_generated;
 }
 
 int main(int argc, char* argv[]) {
@@ -212,16 +231,45 @@ int main(int argc, char* argv[]) {
 
   std::cout << "\nModel ready!\n\n";
 
-  const std::string prompt = "What is your name?";
-  std::cout << "Prompt: \"" << prompt << "\"\n\n";
+  // Initialize generation state with logits buffer
+  GenerationState state;
+  auto logits_result = Tensor::create({config.vocab_size}, DataType::Float32, DeviceType::CPU);
+  if (!logits_result) {
+    std::cerr << "Error: Failed to create logits buffer\n";
+    return 1;
+  }
+  state.logits = std::move(logits_result.value());
 
-  auto start = std::chrono::steady_clock::now();
-  i32 tokens_generated = generate(model, tokenizer, prompt, 256, true);
-  auto end = std::chrono::steady_clock::now();
+  // First turn: Tell the model your name
+  std::cout << "=== Turn 1 ===\n";
+  const std::string prompt1 = "My name is Lummy. Remember that.";
+  std::cout << "User: " << prompt1 << "\n";
+  std::cout << "Assistant: ";
 
-  auto duration = std::chrono::duration<double>(end - start).count();
-  std::cout << "\n" << tokens_generated << " tokens in " << duration << "s ("
-            << (static_cast<double>(tokens_generated) / duration) << " tokens/s)\n";
+  auto start1 = std::chrono::steady_clock::now();
+  i32 tokens1 = generate_turn(model, tokenizer, state, prompt1, 128, true);
+  auto end1 = std::chrono::steady_clock::now();
+
+  auto duration1 = std::chrono::duration<double>(end1 - start1).count();
+  std::cout << "Generated " << tokens1 << " tokens in " << duration1 << "s ("
+            << (static_cast<double>(tokens1) / duration1) << " tokens/s)\n\n";
+
+  // Second turn: Ask the model to recall your name
+  std::cout << "=== Turn 2 ===\n";
+  const std::string prompt2 = "What is my name?";
+  std::cout << "User: " << prompt2 << "\n";
+  std::cout << "Assistant: ";
+
+  auto start2 = std::chrono::steady_clock::now();
+  i32 tokens2 = generate_turn(model, tokenizer, state, prompt2, 128, true);
+  auto end2 = std::chrono::steady_clock::now();
+
+  auto duration2 = std::chrono::duration<double>(end2 - start2).count();
+  std::cout << "Generated " << tokens2 << " tokens in " << duration2 << "s ("
+            << (static_cast<double>(tokens2) / duration2) << " tokens/s)\n\n";
+
+  std::cout << "=== Context Test Complete ===\n";
+  std::cout << "Total context length: " << state.current_pos << " tokens\n";
 
   return 0;
 }
