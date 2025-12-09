@@ -13,6 +13,8 @@
 
 #include "photon/arch/llama_model.hpp"
 #include "photon/runtime/kv_cache_manager.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
+#include "photon/ops/kernels/cuda/paged_attention.cuh"
 #include <algorithm>
 #include <iostream>
 #include <cstring>
@@ -459,16 +461,22 @@ Result<void> LLaMAModel::init_paged_cache(i32 num_blocks, i32 block_size) {
                     "Paged cache currently only supported on CUDA");
   }
 
-  cache_manager_ = std::make_unique<KVCacheManager>(
-      num_blocks, block_size, config_.n_layers, config_.kv_dim, config_.device);
+  // Calculate head_size for cache manager
+  i32 head_size = config_.dim / config_.n_heads;
 
-  auto init_result = cache_manager_->init();
+  // Create cache manager with block-based allocation
+  paged_cache_manager_ = std::make_unique<KVCacheManager>(
+      num_blocks, block_size, config_.n_layers,
+      config_.n_kv_heads, head_size, config_.device);
+
+  auto init_result = paged_cache_manager_->init();
   if (!init_result) {
     return Err<void>(init_result.error());
   }
 
   use_paged_cache_ = true;
-  LOG(INFO) << "Paged KV cache initialized successfully";
+  LOG(INFO) << "PagedAttention (block-based) initialized: "
+            << num_blocks << " blocks × " << block_size << " tokens/block";
   return Ok();
 }
 
@@ -482,9 +490,14 @@ Result<void> LLaMAModel::forward_batched(
     return Err<void>(ErrorCode::InvalidOperator, "Model not initialized");
   }
 
-  if (!use_paged_cache_ || !cache_manager_) {
+  // Check which cache mode is enabled
+  if (!use_paged_cache_ && !use_paged_cache_) {
     return Err<void>(ErrorCode::InvalidOperator,
-                    "Paged cache not initialized. Call init_paged_cache() first");
+                    "Paged cache not initialized. Call init_paged_cache() or init_paged_cache() first");
+  }
+
+  if (use_paged_cache_ && !paged_cache_manager_) {
+    return Err<void>(ErrorCode::InvalidOperator, "Paged cache manager is null");
   }
 
   if (config_.device != DeviceType::CUDA) {
@@ -535,34 +548,49 @@ Result<void> LLaMAModel::forward_batched(
   cudaMemcpy(seq_ids_gpu_, seq_ids.data(),
              batch_size * sizeof(i32), cudaMemcpyHostToDevice);
 
-  // Prepare cache_offsets once for all layers (optimization!)
-  std::vector<i32> cache_offsets_cpu(batch_size);
-  for (i32 i = 0; i32 seq_id : seq_ids) {
-    auto offset_result = cache_manager_->get_sequence_offset(seq_id);
-    if (!offset_result) {
-      return Err<void>(offset_result.error());
+  // Ensure all sequences are allocated and extended if needed
+  if (use_paged_cache_) {
+    for (size_t i = 0; i < seq_ids.size(); ++i) {
+      i32 seq_id = seq_ids[i];
+      i32 pos = positions[i];
+
+      if (!paged_cache_manager_->is_sequence_allocated(seq_id)) {
+        // Allocate with some extra capacity
+        auto alloc_result = paged_cache_manager_->allocate_sequence(seq_id, pos + 256);
+        if (!alloc_result) {
+          return Err<void>(alloc_result.error());
+        }
+      } else {
+        // Check if we need to extend
+        auto capacity_result = paged_cache_manager_->get_sequence_capacity(seq_id);
+        if (capacity_result && pos >= capacity_result.value()) {
+          auto extend_result = paged_cache_manager_->extend_sequence(seq_id, 128);
+          if (!extend_result) {
+            return Err<void>(extend_result.error());
+          }
+        }
+      }
     }
-    cache_offsets_cpu[i++] = offset_result.value();
   }
-  cudaMemcpy(cache_offsets_gpu_, cache_offsets_cpu.data(),
-             batch_size * sizeof(i32), cudaMemcpyHostToDevice);
 
   // 1. Batched Embedding Lookup (writes directly to x_batch_)
   auto emb_result = embedding_.forward(tokens_batch_, x_batch_);
   if (!emb_result) return emb_result;
 
   // 2. Forward through all transformer blocks (BATCHED!)
-  for (i32 layer_idx = 0; layer_idx < config_.n_layers; ++layer_idx) {
-    Tensor& key_cache = cache_manager_->get_key_cache(layer_idx);
-    Tensor& value_cache = cache_manager_->get_value_cache(layer_idx);
+  if (use_paged_cache_) {
+    // Use PagedAttention with block table
+    for (i32 layer_idx = 0; layer_idx < config_.n_layers; ++layer_idx) {
+      Tensor& key_cache = paged_cache_manager_->get_key_cache(layer_idx);
+      Tensor& value_cache = paged_cache_manager_->get_value_cache(layer_idx);
 
-    // Call BATCHED forward with proper cache management
-    // Pass both GPU pointers (for kernel use) and CPU vectors (for cache management)
-    auto block_result = blocks_[layer_idx]->forward_batched(
-        x_batch_, positions_gpu_, positions, seq_ids, cache_offsets_gpu_, batch_size,
-        key_cache, value_cache, cache_manager_.get());
+      // Call BATCHED forward with paged cache manager
+      auto block_result = blocks_[layer_idx]->forward_batched(
+          x_batch_, positions_gpu_, positions, seq_ids, batch_size,
+          key_cache, value_cache, paged_cache_manager_.get());
 
-    if (!block_result) return block_result;
+      if (!block_result) return block_result;
+    }
   }
 
   // 3. Batched Final RMSNorm (using pre-allocated norm_batch_)

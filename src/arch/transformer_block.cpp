@@ -13,13 +13,15 @@
 
 #include "photon/arch/transformer_block.hpp"
 #include "photon/runtime/kv_cache_manager.hpp"
+#include "photon/runtime/kv_cache_manager.hpp"
+#include "photon/ops/kernels/cuda/paged_attention.cuh"
+#include "photon/ops/kernels/cuda/paged_kv_write.cuh"
 
 #include <glog/logging.h>
 
 #ifdef PHOTON_USE_CUDA
 #include <cuda_runtime.h>
 #include "photon/ops/kernels/cuda/batched_mha_kernel.cuh"
-#include "photon/ops/kernels/cuda/kv_cache_kernel.cuh"
 #endif
 
 namespace photon::model {
@@ -395,7 +397,6 @@ Result<void> TransformerBlock::forward_batched(
     const i32* positions_gpu,
     const std::vector<i32>& positions_cpu,
     const std::vector<i32>& seq_ids_cpu,
-    const i32* cache_offsets_gpu,
     i32 batch_size,
     Tensor& key_cache,
     Tensor& value_cache,
@@ -404,6 +405,10 @@ Result<void> TransformerBlock::forward_batched(
   if (!initialized_) {
     return Err<void>(ErrorCode::InvalidOperator,
                     "TransformerBlock not initialized");
+  }
+
+  if (!cache_manager) {
+    return Err<void>(ErrorCode::InvalidArgument, "cache_manager is null");
   }
 
   // Ensure batch buffers are allocated
@@ -435,121 +440,108 @@ Result<void> TransformerBlock::forward_batched(
   auto wv_result = wv_.forward(attn_out_batch_, v_batch_);
   if (!wv_result) return wv_result;
 
-  // 3. Apply RoPE - use first position from CPU (no GPU→CPU copy!)
+  // 3. Apply RoPE - use first position from CPU
   i32 pos = positions_cpu[0];
-
-  // Apply RoPE to entire batch at once
   auto rope_result = rope_.forward(q_batch_, k_batch_, pos);
   if (!rope_result) return rope_result;
 
-  // Store K, V to cache (batched GPU kernel for efficiency)
-  if (config_.device == DeviceType::CUDA) {
+  // 4 & 5. Write K/V to cache and run PagedAttention (combined for efficiency)
 #ifdef PHOTON_USE_CUDA
-    // Use optimized batched kernel to write all K/V pairs in one kernel call
-    // This replaces batch_size * 2 cudaMemcpy calls with a single kernel launch
-    auto kv_write_result = photon::kernels::cuda::batched_kv_write_launch(
-        k_batch_.ptr<f32>(),      // Source K [batch_size, kv_dim]
-        v_batch_.ptr<f32>(),      // Source V [batch_size, kv_dim]
-        key_cache.ptr<f32>(),     // Destination key cache
-        value_cache.ptr<f32>(),   // Destination value cache
-        cache_offsets_gpu,        // Cache offsets [batch_size] (GPU)
-        positions_gpu,            // Positions [batch_size] (GPU)
+  if (config_.device == DeviceType::CUDA) {
+    // Get configuration
+    i32 head_size = config_.dim / config_.n_heads;
+    i32 block_size = cache_manager->block_size();
+    i32 max_blocks_per_seq = cache_manager->get_max_blocks_per_seq();
+
+    // Prepare block table (once for both KV write and attention)
+    auto block_table_cpu_result = cache_manager->get_block_table_tensor(seq_ids_cpu);
+    if (!block_table_cpu_result) {
+      return Err<void>(block_table_cpu_result.error());
+    }
+
+    auto block_table_gpu_result = block_table_cpu_result.value().to(DeviceType::CUDA);
+    if (!block_table_gpu_result) {
+      return Err<void>(block_table_gpu_result.error());
+    }
+    Tensor block_table_gpu = std::move(block_table_gpu_result.value());
+
+    // Write K/V to cache using optimized kernel
+    auto kv_write_result = kernels::cuda::paged_kv_write_launch(
+        k_batch_.ptr<f32>(),
+        v_batch_.ptr<f32>(),
+        key_cache.ptr<f32>(),
+        value_cache.ptr<f32>(),
+        block_table_gpu.ptr<i32>(),
+        positions_gpu,
         batch_size,
-        config_.kv_dim,
-        nullptr);                 // Use default stream
+        config_.n_kv_heads,
+        head_size,
+        block_size,
+        max_blocks_per_seq,
+        nullptr);
 
     if (!kv_write_result) {
       return Err<void>(kv_write_result.error());
     }
-#endif
-  } else {
-    // CPU fallback: loop through batch
+
+    // Update sequence lengths
     for (i32 i = 0; i < batch_size; ++i) {
       i32 seq_id = seq_ids_cpu[i];
-      i32 seq_pos = positions_cpu[i];
-
-      auto offset_result = cache_manager->get_sequence_offset(seq_id);
-      if (!offset_result) {
-        return Err<void>(offset_result.error());
+      i32 new_length = positions_cpu[i] + 1;
+      auto update_result = cache_manager->update_sequence_length(seq_id, new_length);
+      if (!update_result) {
+        return Err<void>(update_result.error());
       }
-      i32 seq_offset = offset_result.value();
-      i32 cache_idx = seq_offset + seq_pos;
-
-      f32* k_batch_ptr = k_batch_.ptr<f32>() + i * config_.kv_dim;
-      f32* v_batch_ptr = v_batch_.ptr<f32>() + i * config_.kv_dim;
-      f32* key_cache_ptr = key_cache.ptr<f32>();
-      f32* value_cache_ptr = value_cache.ptr<f32>();
-
-      std::memcpy(key_cache_ptr + cache_idx * config_.kv_dim, k_batch_ptr, config_.kv_dim * sizeof(f32));
-      std::memcpy(value_cache_ptr + cache_idx * config_.kv_dim, v_batch_ptr, config_.kv_dim * sizeof(f32));
     }
-  }
 
-  // 4. Batched Multi-Head Attention with paged cache
-#ifdef PHOTON_USE_CUDA
-  if (config_.device == DeviceType::CUDA) {
-    // Use cache_offsets_gpu provided by llama_model (prepared once for all layers!)
-    std::span<f32> output_span(attn_result_batch_.ptr<f32>(), attn_result_batch_.size());
-    std::span<const f32> query_span(q_batch_.ptr<f32>(), q_batch_.size());
-    std::span<f32> score_span(cached_score_buf_.ptr<f32>(), cached_score_buf_.size());
-    std::span<const f32> key_span(key_cache.ptr<f32>(), key_cache.size());
-    std::span<const f32> value_span(value_cache.ptr<f32>(), value_cache.size());
+    // Prepare seq_lens for attention
+    auto seq_lens_result = cache_manager->get_sequence_lengths(seq_ids_cpu);
+    if (!seq_lens_result) {
+      return Err<void>(seq_lens_result.error());
+    }
 
-    auto mha_result = kernels::cuda::batched_mha_paged_launch(
-        positions_gpu,  // Use GPU pointer for kernel
-        cache_offsets_gpu,
+    auto seq_lens_gpu_result = Tensor::create({batch_size}, DataType::Int32, DeviceType::CUDA);
+    if (!seq_lens_gpu_result) {
+      return Err<void>(seq_lens_gpu_result.error());
+    }
+    Tensor seq_lens_gpu = std::move(seq_lens_gpu_result.value());
+
+    cudaMemcpy(seq_lens_gpu.data(), seq_lens_result.value().data(),
+               batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+
+    // Run PagedAttention
+    f32 scale = 1.0f / sqrtf(static_cast<f32>(head_size));
+    auto attn_result = kernels::cuda::paged_attention_launch(
+        attn_result_batch_.ptr<f32>(),
+        q_batch_.ptr<f32>(),
+        key_cache.ptr<f32>(),
+        value_cache.ptr<f32>(),
+        block_table_gpu.ptr<i32>(),
+        seq_lens_gpu.ptr<i32>(),
         batch_size,
         config_.n_heads,
-        config_.seq_len,
-        config_.kv_dim,
-        config_.kv_mul,
-        config_.head_size,
-        output_span,
-        query_span,
-        score_span,
-        key_span,
-        value_span,
+        config_.n_kv_heads,
+        head_size,
+        block_size,
+        max_blocks_per_seq,
+        scale,
         nullptr);
 
-    if (!mha_result) return mha_result;
+    if (!attn_result) {
+      return Err<void>(attn_result.error());
+    }
   } else
 #endif
   {
-    // CPU fallback: process per-sequence with cache copying
-    for (i32 i = 0; i < batch_size; ++i) {
-      i32 seq_id = seq_ids_cpu[i];  // Use CPU vector
-      i32 seq_pos = positions_cpu[i];  // Use CPU vector
-
-      auto offset_result = cache_manager->get_sequence_offset(seq_id);
-      if (!offset_result) {
-        return Err<void>(offset_result.error());
-      }
-      i32 seq_offset = offset_result.value();
-
-      f32* q_batch_ptr = q_batch_.ptr<f32>() + i * config_.dim;
-      std::memcpy(q_.ptr<f32>(), q_batch_ptr, config_.dim * sizeof(f32));
-
-      i32 tokens_to_copy = seq_pos + 1;
-      usize cache_bytes = tokens_to_copy * config_.kv_dim * sizeof(f32);
-      f32* key_src = key_cache.ptr<f32>() + seq_offset * config_.kv_dim;
-      f32* value_src = value_cache.ptr<f32>() + seq_offset * config_.kv_dim;
-
-      std::memcpy(temp_key_cache_.data(), key_src, cache_bytes);
-      std::memcpy(temp_value_cache_.data(), value_src, cache_bytes);
-
-      auto mha_result = mha_.forward(q_, temp_key_cache_, temp_value_cache_, attn_result_, seq_pos);
-      if (!mha_result) return mha_result;
-
-      f32* attn_result_ptr = attn_result_batch_.ptr<f32>() + i * config_.dim;
-      std::memcpy(attn_result_ptr, attn_result_.ptr<f32>(), config_.dim * sizeof(f32));
-    }
+    return Err<void>(ErrorCode::NotImplemented,
+                    "PagedAttention V2 only supported on CUDA");
   }
 
-  // 5. Output projection (batched)
+  // 6. Output projection (batched)
   auto wo_result = wo_.forward(attn_result_batch_, wo_out_batch_);
   if (!wo_result) return wo_result;
 
-  // 6. Residual connection: x = x + wo_out (batched)
+  // 7. Residual connection: x = x + wo_out (batched)
   auto add1_result = add_.forward(x_batch, wo_out_batch_, x_batch);
   if (!add1_result) return add1_result;
 
@@ -557,11 +549,11 @@ Result<void> TransformerBlock::forward_batched(
   // Feed-Forward Block
   // ========================================================================
 
-  // 7. Pre-FFN RMSNorm (batched)
+  // 8. Pre-FFN RMSNorm (batched)
   auto ffn_norm_result = ffn_norm_.forward(x_batch, ffn_out_batch_);
   if (!ffn_norm_result) return ffn_norm_result;
 
-  // 8. FFN: w2(swiglu(w1(h), w3(h))) - all batched
+  // 9. FFN: w2(swiglu(w1(h), w3(h))) - all batched
   auto w1_result = w1_.forward(ffn_out_batch_, w1_out_batch_);
   if (!w1_result) return w1_result;
 
@@ -574,7 +566,7 @@ Result<void> TransformerBlock::forward_batched(
   auto w2_result = w2_.forward(swiglu_out_batch_, w2_out_batch_);
   if (!w2_result) return w2_result;
 
-  // 9. Residual connection: x = x + w2_out (batched)
+  // 10. Residual connection: x = x + w2_out (batched)
   auto add2_result = add_.forward(x_batch, w2_out_batch_, x_batch);
   if (!add2_result) return add2_result;
 

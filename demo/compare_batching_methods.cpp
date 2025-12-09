@@ -112,7 +112,7 @@ std::vector<RequestResult> run_baseline(
     }
 
     // Allocate KV cache
-    auto* cache_mgr = model.cache_manager();
+    auto* cache_mgr = model.paged_cache_manager();
     for (i32 i = 0; i < batch_size; ++i) {
       i32 total_tokens = max_prompt_len + max_new_tokens + 10;
       cache_mgr->allocate_sequence(seq_ids[i], total_tokens);
