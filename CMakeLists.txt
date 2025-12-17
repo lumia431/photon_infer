@@ -16,13 +16,13 @@ if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "Build type not specified, defaulting to Release")
 endif()
 
-option(PHOTON_BUILD_TESTS "Build unit tests" ON)
+option(PHOTON_BUILD_TESTS "Build unit tests" OFF)
 option(PHOTON_BUILD_EXAMPLES "Build examples" ON)
 option(PHOTON_BUILD_CUDA "Build with CUDA support" ON)  # Default ON for CUDA
 option(PHOTON_BUILD_SHARED "Build shared libraries" OFF)
 option(PHOTON_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(PHOTON_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
-option(PHOTON_USE_EIGEN "Use Eigen library for CPU operations" ON)  # Default ON
+option(PHOTON_USE_EIGEN "Use Eigen library for CPU operations" OFF)  # Default OFF
 
 # ============================================================================
 # C++ Standard and Compiler Requirements
@@ -168,11 +168,20 @@ add_subdirectory(web)
 # ============================================================================
 include(GNUInstallDirs)
 
-install(
-  DIRECTORY include/photon
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  FILES_MATCHING PATTERN "*.hpp"
-)
+# ============================================================================
+# Uninstall target
+# ============================================================================
+if(NOT TARGET uninstall)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
+    IMMEDIATE @ONLY)
+
+  add_custom_target(uninstall
+    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
+    COMMENT "Uninstalling PhotonInfer..."
+  )
+endif()
 
 # ============================================================================
 # Summary

@@ -21,7 +21,6 @@
 
 #ifdef PHOTON_USE_CUDA
 #include <cuda_runtime.h>
-#include "photon/ops/kernels/cuda/batched_mha_kernel.cuh"
 #endif
 
 namespace photon::model {
@@ -303,17 +302,17 @@ Result<void> TransformerBlock::forward(Tensor& x, i32 pos,
 // Batched Forward Pass
 // ============================================================================
 
-Result<void> TransformerBlock::ensure_batch_buffers(i32 batch_size) {
-  if (batch_size <= current_batch_capacity_) {
+Result<void> TransformerBlock::ensure_batch_buffers(i32 total_tokens) {
+  if (total_tokens <= current_batch_capacity_) {
     return Ok();  // Already allocated
   }
 
   auto device = config_.device;
   auto dtype = DataType::Float32;
 
-  // Helper to create [batch, size] tensor
+  // Helper to create [total_tokens, size] tensor
   auto create_batch_buf = [&](i32 size) -> Result<Tensor> {
-    return Tensor::create({batch_size, size}, dtype, device);
+    return Tensor::create({total_tokens, size}, dtype, device);
   };
 
   // Allocate all batched buffers
@@ -377,18 +376,18 @@ Result<void> TransformerBlock::ensure_batch_buffers(i32 batch_size) {
   // Allocate cached GPU buffers for batched MHA (device-only, reused)
   if (config_.device == DeviceType::CUDA) {
     // Allocate cache_offsets buffer on GPU
-    auto offsets_result = Tensor::create({batch_size}, DataType::Int32, DeviceType::CUDA);
+    auto offsets_result = Tensor::create({total_tokens}, DataType::Int32, DeviceType::CUDA);
     if (!offsets_result) return Err<void>(offsets_result.error());
     cached_offsets_gpu_ = std::move(offsets_result.value());
 
     // Allocate score buffer on GPU
-    auto score_result = Tensor::create({batch_size, config_.n_heads, config_.seq_len},
+    auto score_result = Tensor::create({total_tokens, config_.n_heads, config_.seq_len},
                                        DataType::Float32, DeviceType::CUDA);
     if (!score_result) return Err<void>(score_result.error());
     cached_score_buf_ = std::move(score_result.value());
   }
 
-  current_batch_capacity_ = batch_size;
+  current_batch_capacity_ = total_tokens;
   return Ok();
 }
 
@@ -397,7 +396,7 @@ Result<void> TransformerBlock::forward_batched(
     const i32* positions_gpu,
     const std::vector<i32>& positions_cpu,
     const std::vector<i32>& seq_ids_cpu,
-    i32 batch_size,
+    i32 total_tokens,
     Tensor& key_cache,
     Tensor& value_cache,
     KVCacheManager* cache_manager) {
@@ -412,14 +411,14 @@ Result<void> TransformerBlock::forward_batched(
   }
 
   // Ensure batch buffers are allocated
-  auto alloc_result = ensure_batch_buffers(batch_size);
+  auto alloc_result = ensure_batch_buffers(total_tokens);
   if (!alloc_result) return alloc_result;
 
   // Verify input shape
-  if (x_batch.ndim() != 2 || x_batch.dims()[0] != batch_size ||
+  if (x_batch.ndim() != 2 || x_batch.dims()[0] != total_tokens ||
       x_batch.dims()[1] != config_.dim) {
     return Err<void>(ErrorCode::InvalidShape,
-                    "x_batch must have shape [batch_size, dim]");
+                    "x_batch must have shape [total_tokens, dim]");
   }
 
   // ========================================================================
@@ -473,7 +472,7 @@ Result<void> TransformerBlock::forward_batched(
         value_cache.ptr<f32>(),
         block_table_gpu.ptr<i32>(),
         positions_gpu,
-        batch_size,
+        total_tokens,
         config_.n_kv_heads,
         head_size,
         block_size,
@@ -485,7 +484,7 @@ Result<void> TransformerBlock::forward_batched(
     }
 
     // Update sequence lengths
-    for (i32 i = 0; i < batch_size; ++i) {
+    for (i32 i = 0; i < total_tokens; ++i) {
       i32 seq_id = seq_ids_cpu[i];
       i32 new_length = positions_cpu[i] + 1;
       auto update_result = cache_manager->update_sequence_length(seq_id, new_length);
@@ -500,14 +499,14 @@ Result<void> TransformerBlock::forward_batched(
       return Err<void>(seq_lens_result.error());
     }
 
-    auto seq_lens_gpu_result = Tensor::create({batch_size}, DataType::Int32, DeviceType::CUDA);
+    auto seq_lens_gpu_result = Tensor::create({total_tokens}, DataType::Int32, DeviceType::CUDA);
     if (!seq_lens_gpu_result) {
       return Err<void>(seq_lens_gpu_result.error());
     }
     Tensor seq_lens_gpu = std::move(seq_lens_gpu_result.value());
 
     cudaMemcpy(seq_lens_gpu.data(), seq_lens_result.value().data(),
-               batch_size * sizeof(i32), cudaMemcpyHostToDevice);
+               total_tokens * sizeof(i32), cudaMemcpyHostToDevice);
 
     // Run PagedAttention
     f32 scale = 1.0f / sqrtf(static_cast<f32>(head_size));
@@ -518,7 +517,7 @@ Result<void> TransformerBlock::forward_batched(
         value_cache.ptr<f32>(),
         block_table_gpu.ptr<i32>(),
         seq_lens_gpu.ptr<i32>(),
-        batch_size,
+        total_tokens,
         config_.n_heads,
         config_.n_kv_heads,
         head_size,

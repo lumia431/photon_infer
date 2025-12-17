@@ -31,7 +31,7 @@ using namespace photon::model;
 // Configuration
 struct ServerConfig {
     int port = 5728;
-    std::string static_dir = "./web/static";
+    std::string static_dir = "/photon_infer/web/static";
     std::string checkpoint_path = "./models/llama-3.2-1b-instruct-q8_0.gguf";
     std::string tokenizer_path = "./models/llama-3.2-tokenizer.json";
     int max_seq_len = 2048;

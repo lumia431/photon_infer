@@ -47,4 +47,14 @@ add_custom_command(TARGET photon_web_server POST_BUILD
     COMMENT "Copying web static files to build directory"
 )
 
+# Install targets
+install(TARGETS photon_web_server
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Install static files to fixed absolute path
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/static
+    DESTINATION /photon_infer/web
+)
+
 message(STATUS "Web server will be built as: ${CMAKE_BINARY_DIR}/bin/photon_web_server")

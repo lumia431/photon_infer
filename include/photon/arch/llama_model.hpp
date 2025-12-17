@@ -172,10 +172,10 @@ class LLaMAModel {
   /**
    * @brief Batched forward pass (multiple sequences in parallel)
    *
-   * @param tokens Token IDs for each sequence [batch_size]
-   * @param positions Position for each sequence [batch_size]
-   * @param seq_ids Sequence IDs [batch_size]
-   * @param logits Output logits [batch_size, vocab_size] (must be on GPU)
+   * @param tokens Token IDs for each sequence [total_tokens]
+   * @param positions Position for each sequence [total_tokens]
+   * @param seq_ids Sequence IDs [total_tokens]
+   * @param logits Output logits [total_tokens, vocab_size] (must be on GPU)
    * @return Result<void> Success or error
    */
   Result<void> forward_batched(
@@ -210,13 +210,13 @@ class LLaMAModel {
   Tensor logits_buf_;  // Logits buffer [vocab_size]
 
   // Pre-allocated GPU buffers for batched inference (reused across calls)
-  i32 batched_buffers_capacity_ = 0;  // Allocated batch size
-  i32* positions_gpu_ = nullptr;      // [batch_size] - reusable
-  i32* seq_ids_gpu_ = nullptr;        // [batch_size] - reusable
-  i32* cache_offsets_gpu_ = nullptr;  // [batch_size] - reusable
-  Tensor tokens_batch_;                // [batch_size] - reusable
-  Tensor x_batch_;                     // [batch_size, dim] - reusable
-  Tensor norm_batch_;                  // [batch_size, dim] - reusable
+  i32 batched_buffers_capacity_ = 0;  // Allocated capacity in total_tokens
+  i32* positions_gpu_ = nullptr;      // [total_tokens] - reusable
+  i32* seq_ids_gpu_ = nullptr;        // [total_tokens] - reusable
+  i32* cache_offsets_gpu_ = nullptr;  // [total_tokens] - reusable
+  Tensor tokens_batch_;                // [total_tokens] - reusable
+  Tensor x_batch_;                     // [total_tokens, dim] - reusable
+  Tensor norm_batch_;                  // [total_tokens, dim] - reusable
 
   bool initialized_ = false;
   bool use_paged_cache_ = false;   // Whether to use block-based PagedAttention cache
@@ -226,9 +226,9 @@ class LLaMAModel {
 #endif
 
   /**
-   * @brief Ensure batched buffers are allocated for given batch size
+   * @brief Ensure batched buffers are allocated for given total_tokens
    */
-  Result<void> ensure_batched_buffers(i32 batch_size);
+  Result<void> ensure_batched_buffers(i32 total_tokens);
 };
 
 /**

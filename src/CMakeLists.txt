@@ -62,7 +62,6 @@ endif()
 set_target_properties(photon_core PROPERTIES
   VERSION ${PROJECT_VERSION}
   SOVERSION ${PROJECT_VERSION_MAJOR}
-  PUBLIC_HEADER "${PROJECT_SOURCE_DIR}/include/photon/core"
 )
 
 # Include directories
@@ -76,3 +75,12 @@ target_include_directories(photon_core
 if(PHOTON_BUILD_CUDA)
   target_compile_definitions(photon_core PUBLIC PHOTON_USE_CUDA)
 endif()
+
+# Install library
+install(TARGETS photon_core
+  EXPORT PhotonInferTargets
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)

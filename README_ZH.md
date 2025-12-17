@@ -24,6 +24,8 @@ PhotonInfer 为大语言模型推理提供**生产级性能**，采用先进的�
 |------|-------------|-----------|--------|
 | Llama 3.2 1B | 185 tok/s | 252 tok/s | 0.73× (llama.cpp 更快) |
 
+**TTFT (首 Token 延迟)**: 387ms @ 100-token 提示词 (INT8 量化)
+
 ### 批量推理吞吐量
 
 | 批量大小 | PhotonInfer | llama.cpp | 加速比 |
@@ -55,39 +57,6 @@ PhotonInfer 为大语言模型推理提供**生产级性能**，采用先进的�
 - **设备无关**：CPU 和 CUDA 后端的统一接口
 - **Concepts & Ranges**：编译期约束和富有表现力的类型安全
 
-## 🏗️ 架构设计
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     连续批处理引擎                            │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              两阶段调度器                           │   │
-│  │  • RUNNING 请求（继续生成）                         │   │
-│  │  • WAITING 请求（填充剩余容量）                     │   │
-│  │  • Token 级抢占支持                                 │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                           ↓                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │           Transformer 层（批量）                    │   │
-│  │  • 批量 RMSNorm（融合）                             │   │
-│  │  • INT8 量化 MatMul（cuBLASLt）                     │   │
-│  │  • 批量 RoPE（融合）                                │   │
-│  │  • 分页多头注意力                                   │   │
-│  │    - 向量化 K/V cache 访问（float4）                │   │
-│  │    - 优化的 softmax（CUB reduce）                   │   │
-│  │    - 长序列分区注意力                               │   │
-│  │  • SwiGLU FFN                                       │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                           ↓                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │           GPU 采样（零拷贝）                        │   │
-│  │  • 批量 temperature 缩放                            │   │
-│  │  • Top-p/top-k 过滤                                 │   │
-│  │  • GPU 上的分类采样                                 │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
 ## 🚀 快速开始
 
 ### 环境要求
@@ -96,6 +65,12 @@ PhotonInfer 为大语言模型推理提供**生产级性能**，采用先进的�
 - **CMake**：3.20+
 - **CUDA Toolkit**：12.0+（测试于 12.5）
 - **GPU**：NVIDIA GPU，计算能力 7.0+
+
+### 下载模型
+
+下载预量化模型以快速开始：
+
+https://huggingface.co/Lummy666/llama-3.2-1B-Instruct
 
 ### 编译
 
@@ -111,6 +86,29 @@ cmake -DCMAKE_BUILD_TYPE=Release -DPHOTON_BUILD_CUDA=ON ..
 
 # 编译
 cmake --build . -j$(nproc)
+
+# 安装（可选）
+sudo cmake --install .
+```
+
+安装后，可以在任何位置直接运行 web 服务器：
+
+```bash
+photon_web_server \
+    --port 5728 \
+    --model /path/to/llama-3.2-1B-Instruct \
+    --tokenizer /path/to/llama-3.2-1B-Instruct/tokenizer.json
+```
+
+安装后的文件位置：
+- `photon_web_server` → `/usr/local/bin/`
+- 静态 web 文件 → `/photon_infer/web/static/`
+- 核心库 → `/usr/local/lib/`
+
+卸载：
+```bash
+cd build
+sudo cmake --build . --target uninstall
 ```
 
 #### 方式 2：使用 Docker（推荐）

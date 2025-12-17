@@ -53,21 +53,29 @@ enum class SchedulingPolicy {
 };
 
 /**
- * @brief Continuous batching scheduler
+ * @brief Continuous batching scheduler with chunked prefill optimization
  *
- * Key algorithm (token-level scheduling):
+ * Key algorithm (vLLM-style optimized scheduling):
  *
- * Phase 1: Continue RUNNING requests
+ * Phase 1: Continue RUNNING requests (both prefill and decode)
  *   - All requests currently being processed must continue
+ *   - Prefill requests process in chunks (default 256 tokens)
+ *   - Decode requests process 1 token at a time
  *   - This ensures KV cache consistency
  *
  * Phase 2: Add WAITING requests
  *   - Fill remaining batch capacity with new requests
  *   - Prioritize oldest requests (FCFS)
+ *   - Can mix prefill and decode in same batch (variable-length batching)
+ *
+ * Chunked Prefill Benefits:
+ *   - Long prompts don't block decode requests
+ *   - Better GPU utilization with mixed prefill/decode
+ *   - Lower time-to-first-token (TTFT) for short requests
  *
  * After each step:
  *   - Remove finished requests
- *   - Update request states
+ *   - Update request states and computed token counts
  */
 class ContinuousBatchScheduler {
  public:
@@ -76,14 +84,17 @@ class ContinuousBatchScheduler {
    *
    * @param max_batch_size Maximum number of sequences in a batch
    * @param max_sequences Maximum total sequences (cache capacity)
+   * @param chunk_size Prefill chunk size (default 256)
    * @param policy Scheduling policy
    */
   ContinuousBatchScheduler(
       i32 max_batch_size,
       i32 max_sequences,
+      i32 chunk_size = 256,
       SchedulingPolicy policy = SchedulingPolicy::FCFS)
       : max_batch_size_(max_batch_size),
         max_sequences_(max_sequences),
+        chunk_size_(chunk_size),
         policy_(policy),
         next_seq_id_(0) {}
 
@@ -207,6 +218,20 @@ class ContinuousBatchScheduler {
   }
 
   /**
+   * @brief Get chunk size for prefill
+   */
+  i32 chunk_size() const {
+    return chunk_size_;
+  }
+
+  /**
+   * @brief Set chunk size for prefill
+   */
+  void set_chunk_size(i32 chunk_size) {
+    chunk_size_ = chunk_size;
+  }
+
+  /**
    * @brief Get statistics
    */
   struct Stats {
@@ -247,6 +272,7 @@ class ContinuousBatchScheduler {
  private:
   i32 max_batch_size_;
   i32 max_sequences_;
+  i32 chunk_size_;  // Prefill chunk size for chunked prefill optimization
   SchedulingPolicy policy_;
   i64 next_seq_id_;
 
